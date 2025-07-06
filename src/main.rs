@@ -1,5 +1,5 @@
 #![allow(unused_imports)]
-use std::{io::{Read, Write}, net::TcpListener};
+use std::{io::{BufRead, BufReader, Read, Write}, net::TcpListener};
 
 fn main() {
     // You can use print statements as follows for debugging, they'll be visible when running tests.
@@ -8,15 +8,16 @@ fn main() {
     let listener = TcpListener::bind("127.0.0.1:6379").unwrap();
 
     let mut input_buf = String::from("");
+    // let mut reader; 
     for stream in listener.incoming() {
         match stream {
             Ok(mut _stream) => {
-                println!("Connection recvd");
+                // reader = BufReader::new(&_stream).read_to_string(&mut input_buf);
                 _stream.read_to_string(&mut input_buf).unwrap();
                 println!("{}", &input_buf);
-                for cmd in input_buf.split('\n') {
-                    if cmd == "PING" {
-                        _stream.write_all(b"+PONG\r\n").unwrap();
+                for line in input_buf.split('\n') {
+                    if line == "PING" {
+                        _stream.write(b"+PONG\r\n").unwrap();
                     }
                 }
             }
