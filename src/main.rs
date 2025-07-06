@@ -12,6 +12,7 @@ fn main() {
         match stream {
             Ok(mut _stream) => {
                 _stream.read_to_string(&mut input_buf).unwrap();
+                println!("{}", &input_buf);
                 for cmd in input_buf.split('\n') {
                     if cmd == "PING" {
                         _stream.write_all(b"+PONG\r\n").unwrap();
