@@ -11,6 +11,7 @@ fn main() {
     for stream in listener.incoming() {
         match stream {
             Ok(mut _stream) => {
+                println!("Connection recvd");
                 _stream.read_to_string(&mut input_buf).unwrap();
                 println!("{}", &input_buf);
                 for cmd in input_buf.split('\n') {
