@@ -13,8 +13,8 @@ fn main() {
         match stream {
             Ok(mut _stream) => {
                 // reader = BufReader::new(&_stream).read_to_string(&mut input_buf);
-                _stream.read_to_string(&mut input_buf).unwrap();
-                println!("{}", &input_buf);
+                // _stream.read_to_string(&mut input_buf).unwrap();
+                // println!("{}", &input_buf);
                 for line in input_buf.split('\n') {
                     if line == "PING" {
                         _stream.write(b"+PONG\r\n").unwrap();
