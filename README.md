@@ -1,34 +1,76 @@
-[![progress-banner](https://backend.codecrafters.io/progress/redis/5f175689-9f3f-40d8-9d01-7bca9b83c9c5)](https://app.codecrafters.io/users/codecrafters-bot?r=2qF)
+# RedisClone-RS
 
-This is a starting point for Rust solutions to the
-["Build Your Own Redis" Challenge](https://codecrafters.io/challenges/redis).
+A high-performance Redis clone implemented in Rust, leveraging Tokio for asynchronous event handling and concurrent client connections.
 
-In this challenge, you'll build a toy Redis clone that's capable of handling
-basic commands like `PING`, `SET` and `GET`. Along the way we'll learn about
-event loops, the Redis protocol and more.
+## 🚀 Features
 
-**Note**: If you're viewing this repo on GitHub, head over to
-[codecrafters.io](https://codecrafters.io) to try the challenge.
+- **Asynchronous I/O** using Tokio for efficient, concurrent connections
+- **Redis Protocol Compatible** (RESP)
+- **Concurrent Connection Handling** with async/await
+- **Memory-Safe** and thread-safe, thanks to Rust
+- **High Performance** via zero-cost abstractions and efficient async I/O
+- **Extensible Architecture** for easy feature additions
 
-# Passing the first stage
+## 📋 Supported Commands
 
-The entry point for your Redis implementation is in `src/main.rs`. Study and
-uncomment the relevant code, and push your changes to pass the first stage:
+- `GET`
+- `SET`
+- `DEL`
+- `PING`
+- `ECHO`
 
-```sh
-git commit -am "pass 1st stage" # any msg
-git push origin master
-```
+## 🛠️ Installation
 
-That's all!
+- Requires Rust (latest stable recommended) and Cargo
+- Clone the repository and build with Cargo
 
-# Stage 2 & beyond
+## 🔧 Configuration
 
-Note: This section is for stages 2 and beyond.
+- Uses Tokio, anyhow, log, and env_logger as dependencies
+- Configurable host, port, and logging level via environment variables
 
-1. Ensure you have `cargo (1.88)` installed locally
-1. Run `./your_program.sh` to run your Redis server, which is implemented in
-   `src/main.rs`. This command compiles your Rust project, so it might be slow
-   the first time you run it. Subsequent runs will be fast.
-1. Commit your changes and run `git push origin master` to submit your solution
-   to CodeCrafters. Test output will be streamed to your terminal.
+## 🚦 Usage
+
+- Start the server with Cargo
+- Connect using `redis-cli` or any Redis-compatible client
+- Compatible with standard Redis client libraries in various languages
+
+## 🏗️ Architecture
+
+- **Async Event Loop:** Uses Tokio's runtime for handling asynchronous operations
+- **Concurrent Connection Handling:** Each client connection runs in its own async task
+- **Memory Management:** Key-value data is stored in a thread-safe, shared structure
+
+## 🧪 Testing
+
+- Includes unit and integration tests
+- Can be benchmarked using tools like `redis-benchmark`
+
+## 🔮 Roadmap
+
+- Persistence (RDB/AOF)
+- Pub/Sub messaging
+- Lua scripting support
+- Cluster mode
+- Additional data types (Lists, Sets, Sorted Sets)
+- Memory optimization
+- Metrics and monitoring
+
+## 🤝 Contributing
+
+- Contributions are welcome via Pull Requests
+- Please open an issue for major changes before submitting a PR
+
+## 📝 License
+
+MIT License
+
+## 🙏 Acknowledgments
+
+- Inspired by the Tokio tutorial and mini-redis implementation
+- Built with the Tokio async runtime
+- Thanks to the Rust community
+
+## ⚠️ Disclaimer
+
+This is a learning project and not intended for production use. For production, use the official Redis server or other stable alternatives.
