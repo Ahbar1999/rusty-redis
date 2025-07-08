@@ -1,8 +1,9 @@
-use std::{fmt::format, io::ErrorKind, mem::uninitialized, vec};
+use std::{collections::HashMap, fmt::format, hash::Hash, io::ErrorKind, mem::uninitialized, vec};
 // use bytes::{Bytes, BytesMut};
 use tokio::{io::AsyncWriteExt, net::{TcpListener, TcpStream}};
 
 const DELIM: u8 = b'\r';
+const SKIP_LEN: usize = 2;
 
 #[tokio::main]
 async fn main() {
@@ -18,14 +19,13 @@ async fn main() {
 }
 
 async fn conn(mut _stream: TcpStream) { // represents an incoming connection
+    let mut storage: HashMap<String, String> = HashMap::new();
 
     let mut input_buf: Vec<u8> = vec![0; 1024]; 
     loop {
         input_buf.fill(0);
         _stream.readable().await.unwrap();
         
-        // let bytes_rx = _stream.try_read(&mut input_buf).unwrap();    // refactored to a single if
-        // let bytes_rx = _stream.try_read(&mut input_buf).unwrap();
         match _stream.try_read(&mut input_buf) {
             Ok(bytes_rx) => {
                 if bytes_rx == 0 {
@@ -33,88 +33,91 @@ async fn conn(mut _stream: TcpStream) { // represents an incoming connection
                 }
             },
             Err(ref e) if e.kind() == ErrorKind::WouldBlock => {
+                // this error handling in necessary otherwise it would necessarily block
                 continue;
             },
             Err(e) => {
                 println!("{}", e);
             }
         }
+
         // we know that its a string (for now)
-        // let (sz, out) = parse_string(1, &input_buf);
         // respond to th command; currently without any error handling
-        _stream.writable().await.unwrap();
+        // _stream.writable().await.unwrap();
         // let data = input_buf[0..bytes_rx]; 
-        let result = parse(0, &input_buf);
-        for mut res in result {
-            if res == "ECHO" {
-                continue;
-            }
-            if res == "PING" {
-                res = String::from("PONG");
-            }
-            let output =format!("${}\r\n{}\r\n", res.len(), res);
-            // let output = String::from("$") + stringify!(sz) + "\r\n" + &out + "\r\n";  
-            // match 
-
-            println!("sending: {}", output);
-            _stream.write_all(output.as_bytes()).await.unwrap(); 
-            // {
-                // Ok(bytes_tx) => {
-                //    println!("{} bytes sent", bytes_tx); 
-                // },
-                // Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                //     continue;
-                // },
-                // Err(e) => {
-                //     println!("{:?}", e);
-                // },
-
-            // }
+        let mut output: String = String::from("");
+        let args = parse(0, &input_buf);  // these are basically commands, at one point we will have to parse commands with their parameters, they could be int, boolean etc.   
+        if args[0] == "ECHO" {
+            output = encode_bulk(&args[1]);
         }
-        // _stream.try_write(b"+PONG\r\n").unwrap();
-        /* 
-        match _stream.try_read(&mut input_buf) {
-            Ok(bytes_rx) => {
-                if bytes_rx == 0 {
-                    break;
-                }   // break out of connection if no more commands to read
+        if args[0] == "PING" {
+            output = encode_bulk("PONG");
+            // args[0] = String::from("PONG");
+        }
+        if args[0] == "SET" {
+            cmd_set(&args[1], &args[2], &mut storage);
+            output = response_ok();
+        }
 
-                // respond to th command
-                _stream.writable().await.unwrap();
-
-                _stream.try_write(b"+PONG\r\n").unwrap();
-                // if you want error handling, do it the following way
-                // match _stream.try_write(b"+PONG\r\n") {
-                //     Ok(bytes_tx) => {
-                //         // bytes_tx < 0 ? do some error handling
-                //         continue;
-                //     } 
-                //     Err(e) => {
-                //         println!("{:?}", e);
-                //     }
-                // }
-            } 
-            Err(ref e) if e.kind() == ErrorKind::WouldBlock => {
-                continue;
-            }
-            Err(e) => {
-                println!("{:?}", e);
+        if args[0] == "GET" {
+            match cmd_get(&args[1], &storage) {
+                Some(s) => {
+                    output = encode_bulk(s);
+                },
+                None => {
+                    output = encode_bulk(&output);
+                }
             }
         }
-        */
+
+        // let output =format!("${}\r\n{}\r\n", res.len(), res);
+        // let output = String::from("$") + stringify!(sz) + "\r\n" + &out + "\r\n";  
+        // match 
+
+        println!("sending: {}", output);
+        _stream.write_all(output.as_bytes()).await.unwrap();
+        // if you wanna use try_write() you will need to manually send data piece by piece by tracking bytes sent 
+        // match _stream.try_write(output.as_bytes()) {
+        //     Ok(_) => {
+        //         continue; 
+        //     },
+        //     Err(e) if e.kind() == ErrorKind::WouldBlock => {
+        //         continue;
+        //     },
+        //     Err(e) => {
+        //         println!("{}", e);
+        //         break;
+        //     }
+        // } 
+        // {
     }
 }
 
-// struct BufSlice(usize, usize);
-// enum RESPType {
-//     Int(BufSlice), 
-//     String(BufSlice),
-//     Boolean(BufSlice), 
-//     Double(BufSlice), 
-//     Array(Vec<RESPType>),
-//     Null(BufSlice)
-// }
+fn response_ok() -> String {
+    String::from("+OK\r\n")
+}
 
+fn cmd_set(key: &String, val: &String, storage: &mut HashMap<String, String>) {
+    storage.insert(key.clone(), val.clone());
+}
+
+fn cmd_get<'a>(key: &String, storage: &'a HashMap<String, String>) -> Option<&'a String> {
+    println!("searching for {}", key);
+    storage.get(key)
+}
+
+fn encode_bulk(s: &str) -> String {
+    if s.is_empty() {
+        // return NULL string
+        return format!("$-1\r\n");
+    }
+
+    let data = String::from(s);
+    
+    format!("${}\r\n{}\r\n", data.len(), data)
+}
+
+// parse a single command
 fn parse(ptr: usize, buf: &[u8]) -> Vec<String> {
     // print!("{:?}", buf);
     // for b in buf {
@@ -127,20 +130,25 @@ fn parse(ptr: usize, buf: &[u8]) -> Vec<String> {
             let (_, s) = parse_string(ptr, buf);
             vec![s]
         },
-        b'*' => parse_array(ptr, buf),
+        b'*' => {
+            let (_, v) = parse_array(ptr, buf);
+            v
+        }
         _ => unimplemented!()
     }
 }
 
-fn parse_array(ptr: usize, buf: &[u8]) -> Vec<String> {
+
+// you might have to call this recursively
+fn parse_array(ptr: usize, buf: &[u8]) -> (usize, Vec<String>) {
     let mut size =0;
     let mut i = ptr + 1;
     while buf[i] != DELIM {
         size = 10 * size + (buf[i] as char).to_digit(10).unwrap() as usize;
         i += 1;
     }
-    i += 2;
-    println!("size of array: {}", size);
+    i += SKIP_LEN;
+    // println!("size of array: {}", size);
 
     let mut result:Vec<String> = vec![];
     for _ in 0..size {
@@ -154,9 +162,9 @@ fn parse_array(ptr: usize, buf: &[u8]) -> Vec<String> {
                 unimplemented!()
             }
         }
-    } 
+    }
 
-    result
+    (i, result)
 }
 
 fn parse_string(ptr: usize, buf: &[u8]) -> (usize, String) {
@@ -166,14 +174,7 @@ fn parse_string(ptr: usize, buf: &[u8]) -> (usize, String) {
         size = 10 * size + (buf[i] as char).to_digit(10).unwrap() as usize;
         i += 1;
     }
-    i += 2; // skip both \r and \n
-    
-    // println!("size of string: {}", size);
-    // skip "ECHO" 
-    // while buf[i] !=  DELIM {
-    //     i += 1;
-    // }
-    // i += 2;
+    i += SKIP_LEN; // skip both \r and \n
 
     let mut result = String::new();
 
@@ -182,11 +183,21 @@ fn parse_string(ptr: usize, buf: &[u8]) -> (usize, String) {
     }
 
     i += size;
-    i += 2;
+    i += SKIP_LEN;
 
     println!("string parsed: {}", result);
     return (i, result); 
 }
+
+// struct BufSlice(usize, usize);
+// enum RESPType {
+//     Int(BufSlice), 
+//     String(BufSlice),
+//     Boolean(BufSlice), 
+//     Double(BufSlice), 
+//     Array(Vec<RESPType>),
+//     Null(BufSlice)
+// }
 
 // return (current index, (start, end)) 
 // fn parse(buf:  &BytesMut) -> (usize, BufSlice)  {
@@ -220,6 +231,3 @@ fn parse_string(ptr: usize, buf: &[u8]) -> (usize, String) {
 //         }
 //         unimplemented!();
 //     }
-
-
-// 
