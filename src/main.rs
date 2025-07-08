@@ -1,9 +1,15 @@
-use std::{collections::HashMap, fmt::format, hash::Hash, io::ErrorKind, mem::uninitialized, vec};
+use std::{collections::HashMap, fmt::format, hash::Hash, io::ErrorKind, mem::uninitialized, time::SystemTime, vec};
 // use bytes::{Bytes, BytesMut};
 use tokio::{io::AsyncWriteExt, net::{TcpListener, TcpStream}};
 
 const DELIM: u8 = b'\r';
 const SKIP_LEN: usize = 2;
+
+// #[derive(Debug, Hash]
+// struct RKey<'a> {
+//     key: &'a str,
+//     timeout: usize
+// }
 
 #[tokio::main]
 async fn main() {
@@ -19,7 +25,7 @@ async fn main() {
 }
 
 async fn conn(mut _stream: TcpStream) { // represents an incoming connection
-    let mut storage: HashMap<String, String> = HashMap::new();
+    let mut storage: HashMap<String, (String, SystemTime, usize)> = HashMap::new();
 
     let mut input_buf: Vec<u8> = vec![0; 1024]; 
     loop {
@@ -50,17 +56,24 @@ async fn conn(mut _stream: TcpStream) { // represents an incoming connection
         if args[0] == "ECHO" {
             output = encode_bulk(&args[1]);
         }
+
         if args[0] == "PING" {
             output = encode_bulk("PONG");
             // args[0] = String::from("PONG");
         }
-        if args[0] == "SET" {
-            cmd_set(&args[1], &args[2], &mut storage);
+
+        if args[0].to_uppercase() == "SET" {
+            let mut timeout: usize = usize::MAX;    // inf
+            if args.len() > 3 { // input validation is not being performed
+                // SET foo bar px milliseconds
+                timeout = args[4].parse().unwrap();
+            }
+            cmd_set(&args[1], &args[2], SystemTime::now(),timeout, &mut storage);
             output = response_ok();
         }
 
-        if args[0] == "GET" {
-            match cmd_get(&args[1], &storage) {
+        if args[0].to_uppercase() == "GET" {
+            match cmd_get(&args[1], &mut storage) {
                 Some(s) => {
                     output = encode_bulk(s);
                 },
@@ -97,13 +110,42 @@ fn response_ok() -> String {
     String::from("+OK\r\n")
 }
 
-fn cmd_set(key: &String, val: &String, storage: &mut HashMap<String, String>) {
-    storage.insert(key.clone(), val.clone());
+fn cmd_set(key: &String, val: &String, val2: SystemTime, val3: usize,  storage: &mut HashMap<String, (String, SystemTime, usize)>) {
+    println!("setting {} to {} for {:?}ms", key, val, val2);
+    storage.insert(key.clone(), (val.clone(), val2, val3));
 }
 
-fn cmd_get<'a>(key: &String, storage: &'a HashMap<String, String>) -> Option<&'a String> {
-    println!("searching for {}", key);
-    storage.get(key)
+// first correct use of lifetimes ???? 
+// i used to pray for times like these 
+fn cmd_get<'a>(key: &String, storage: &'a mut HashMap<String, (String, SystemTime, usize)>) -> Option<&'a String> {
+    println!("searching for {:?}", key);
+
+    // rewrap for our purposes
+    match storage.get(key) {
+        Some((res, t, exp)) => {
+            match t.elapsed() {
+                Ok(t_elapsed) => {
+                    println!("time elapsed: {:?}", t_elapsed);
+                    if t_elapsed.as_millis() > *exp as u128 {
+                        // we could add deletion but we leave it for now
+                        // as it would require us to return concrete strings not slices
+                        // storage.remove_entry(key);
+                        None
+                    } else {
+                        Some (res)
+                    }
+                },
+                Err(e) => {
+                    println!("{}", e);
+                    None
+                }
+            }
+        },
+        None => {
+            println!("did not find key");
+            None
+        }
+    }
 }
 
 fn encode_bulk(s: &str) -> String {
