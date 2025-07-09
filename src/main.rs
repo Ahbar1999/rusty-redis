@@ -4,6 +4,7 @@ use tokio::{io::AsyncWriteExt, net::{TcpListener, TcpStream}};
 
 const DELIM: u8 = b'\r';
 const SKIP_LEN: usize = 2;
+const DIR: &str = "/tmp/redis-files/";
 
 // #[derive(Debug, Hash]
 // struct RKey<'a> {
@@ -26,7 +27,16 @@ async fn main() {
 
 async fn conn(mut _stream: TcpStream) { // represents an incoming connection
     let mut storage: HashMap<String, (String, SystemTime, usize)> = HashMap::new();
+    let args: Vec<String> = std::env::args().collect();
+    let mut dir = "UNSET";
+    let mut dbfilename = "UNSET";
 
+    if args.len() > 4 {
+        dir = &args[2];
+        dbfilename = &args[4];
+    }
+
+    // println!("{:?}", args);
     let mut input_buf: Vec<u8> = vec![0; 1024]; 
     loop {
         input_buf.fill(0);
@@ -52,36 +62,79 @@ async fn conn(mut _stream: TcpStream) { // represents an incoming connection
         // _stream.writable().await.unwrap();
         // let data = input_buf[0..bytes_rx]; 
         let mut output: String = String::from("");
-        let args = parse(0, &input_buf);  // these are basically commands, at one point we will have to parse commands with their parameters, they could be int, boolean etc.   
-        if args[0] == "ECHO" {
-            output = encode_bulk(&args[1]);
-        }
+        let mut args = parse(0, &input_buf);  // these are basically commands, at one point we will have to parse commands with their parameters, they could be int, boolean etc.   
+        args[0] = args[0].to_uppercase();
 
-        if args[0] == "PING" {
-            output = encode_bulk("PONG");
-            // args[0] = String::from("PONG");
-        }
-
-        if args[0].to_uppercase() == "SET" {
-            let mut timeout: usize = usize::MAX;    // inf
-            if args.len() > 3 { // input validation is not being performed
-                // SET foo bar px milliseconds
-                timeout = args[4].parse().unwrap();
-            }
-            cmd_set(&args[1], &args[2], SystemTime::now(),timeout, &mut storage);
-            output = response_ok();
-        }
-
-        if args[0].to_uppercase() == "GET" {
-            match cmd_get(&args[1], &mut storage) {
-                Some(s) => {
-                    output = encode_bulk(s);
-                },
-                None => {
-                    output = encode_bulk(&output);
+        match args[0].as_str() {
+            "ECHO" => {
+                output = encode_bulk(&args[1]);
+            },
+            "PING" => {
+                output = encode_bulk("PONG");
+            },
+            "SET" => {
+                let mut timeout: usize = usize::MAX;    // inf
+                if args.len() > 3 { // input validation is not being performed
+                    // SET foo bar px milliseconds
+                    timeout = args[4].parse().unwrap();
                 }
+                cmd_set(&args[1], &args[2], SystemTime::now(),timeout, &mut storage);
+                output = response_ok();
+            },
+            "GET" => {
+                match cmd_get(&args[1], &mut storage) {
+                    Some(s) => {
+                        output = encode_bulk(s);
+                    },
+                    None => {
+                        output = encode_bulk(&output);
+                    }
+                }
+            },
+            "CONFIG" => {
+                match args[2].as_str() {
+                    "dir" => {
+                        output = format!("*2\r\n$3\r\ndir\r\n${}\r\n{}\r\n", dir.len(), dir);
+                    },
+                    "dbfilename" => {
+                        output = format!("*2\r\n$10\r\ndbfilename\r\n${}\r\n{}\r\n", dbfilename.len(), dbfilename);
+                    }
+                    ,
+                    _ => {
+                        unimplemented!();
+                    }
+                }
+            },
+            _ => {
+                unimplemented!();
             }
-        }
+        } 
+        // if args[0] == "ECHO" {
+        //     output = encode_bulk(&args[1]);
+        // }
+        // if args[0] == "PING" {
+        //     output = encode_bulk("PONG");
+        //     // args[0] = String::from("PONG");
+        // }
+        // if args[0].to_uppercase() == "SET" {
+        //     let mut timeout: usize = usize::MAX;    // inf
+        //     if args.len() > 3 { // input validation is not being performed
+        //         // SET foo bar px milliseconds
+        //         timeout = args[4].parse().unwrap();
+        //     }
+        //     cmd_set(&args[1], &args[2], SystemTime::now(),timeout, &mut storage);
+        //     output = response_ok();
+        // }
+        // if args[0].to_uppercase() == "GET" {
+        //     match cmd_get(&args[1], &mut storage) {
+        //         Some(s) => {
+        //             output = encode_bulk(s);
+        //         },
+        //         None => {
+        //             output = encode_bulk(&output);
+        //         }
+        //     }
+        // }
 
         // let output =format!("${}\r\n{}\r\n", res.len(), res);
         // let output = String::from("$") + stringify!(sz) + "\r\n" + &out + "\r\n";  
@@ -106,6 +159,12 @@ async fn conn(mut _stream: TcpStream) { // represents an incoming connection
     }
 }
 
+
+fn get_dir() -> String {
+    format!("*2\r\n$3\r\ndir\r\n${}\r\n{}\r\n", DIR.len(), DIR)
+}
+
+// returns +OK\r\n
 fn response_ok() -> String {
     String::from("+OK\r\n")
 }
@@ -125,10 +184,11 @@ fn cmd_get<'a>(key: &String, storage: &'a mut HashMap<String, (String, SystemTim
         Some((res, t, exp)) => {
             match t.elapsed() {
                 Ok(t_elapsed) => {
-                    println!("time elapsed: {:?}", t_elapsed);
+                    // println!("time elapsed: {:?}", t_elapsed);
                     if t_elapsed.as_millis() > *exp as u128 {
                         // we could add deletion but we leave it for now
                         // as it would require us to return concrete strings not slices
+                        // because after deletion slices wont be available to return hence the compilation error
                         // storage.remove_entry(key);
                         None
                     } else {
@@ -179,7 +239,6 @@ fn parse(ptr: usize, buf: &[u8]) -> Vec<String> {
         _ => unimplemented!()
     }
 }
-
 
 // you might have to call this recursively
 fn parse_array(ptr: usize, buf: &[u8]) -> (usize, Vec<String>) {
