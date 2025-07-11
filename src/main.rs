@@ -73,15 +73,19 @@ async fn conn(mut _stream: TcpStream) { // represents an incoming connection
                 output = encode_bulk("PONG");
             },
             "SET" => {
-                // todo!("pass data as KVStruct"); 
-                let mut timeout = Option::None;    // inf
+                let mut new_kv = StorageKV {
+                    key: args[1].clone(),
+                    value: args[2].clone(),
+                    exp_ts: None,
+                };
+
                 if args.len() > 3 { // input validation is not being performed
                     // SET foo bar px milliseconds
                     let n = args[4].parse().unwrap();
-                    timeout = SystemTime::now().checked_add(Duration::from_millis(n));
+                    new_kv.exp_ts = SystemTime::now().checked_add(Duration::from_millis(n));
                 }
-                cmd_set(&args[1], &args[2], timeout, &mut storage);
-                // let _ = cmd_save(&storage, &dir, &dbfilename).await;  // for testing
+                cmd_set(new_kv, &mut storage);
+
                 output = response_ok();
             },
             "GET" => {

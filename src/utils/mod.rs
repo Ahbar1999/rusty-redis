@@ -6,6 +6,7 @@ pub mod utils {
         n: i64, 
     }
 
+    #[derive(Debug, Clone)]
     pub struct StorageKV { 
         pub key     :String,
         pub value   :String, 
@@ -18,7 +19,7 @@ pub mod utils {
     pub const _RDB_DATA_SECTION_FLAG_: u8 = 0xFE;
     pub const _RDB_END_: u8 = 0xFF;
     pub const _RDB_TIMESTAMP_MS_FLAG: u8 = 0xFC;
-    pub const _RDB_TIMESTAMP_S_FLAG: u8 = 0xFC;
+    pub const _RDB_TIMESTAMP_S_FLAG: u8 = 0xFD;
 
     pub fn encode_array(vals: &Vec<String>) -> String {
         let mut output = format!("*{}\r\n", vals.len());

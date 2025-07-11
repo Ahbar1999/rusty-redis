@@ -13,9 +13,15 @@ pub mod methods {
 
         cmd_sync(dbfilename, storage).await;
         if !storage.is_empty() {
-            for (key, _) in storage {
-                // add code for pattern matching keys in the future 
-                matched_keys.push(key.clone());
+            for (key, (val, exp_ts)) in storage {
+                // add code for pattern matching keys in the future
+                if let Some(time) = exp_ts {
+                    if SystemTime::now() <= *time {  // if not expired
+                        matched_keys.push(key.clone());
+                    }
+                } else {    // or if no expiry
+                    matched_keys.push(key.clone());
+                }
             }
         }
 
@@ -83,14 +89,16 @@ pub mod methods {
             // i += 1 + buf[i] as usize;   // skip the metadata value  
         }
 
+        println!("parsed metadata");
         while buf[i] == _RDB_DATA_SECTION_FLAG_ {
             i += 1;     // DB section flag(current)
             i += 1;     // DB index
             i += 1;     // storage info section flag
-            i += 1;     // untimed k,v pairs
+            i += 1;     // total k,v pairs
             i += 1;     // timed k,v pairs
         }
 
+        println!("parsed db metadata");
         while i < buf.len() {
             let mut new_kv = StorageKV{
                 key: String::from(""), 
@@ -106,24 +114,32 @@ pub mod methods {
                 break;
             }
 
-            // i += 1;     // skip flag byte
-            // better to always store timestamp in secs or ms, currently we only check of secs 
-            if buf[i] == _RDB_TIMESTAMP_MS_FLAG || buf[i] == _RDB_TIMESTAMP_S_FLAG { // if timestamp flag present
+            // if timestamp flag present
+            if buf[i] == _RDB_TIMESTAMP_S_FLAG { 
                 i += 1;     // skip flag byte(current)
                 let mut ts_bytes: [u8; 4] = [0x0, 0x0, 0x0, 0x0];
                 for j in 0..4 {
-                    ts_bytes[i + j] = buf[i + j];
+                    ts_bytes[j] = buf[i + j];
                 }
-                new_kv.exp_ts = Some(UNIX_EPOCH + Duration::from_secs_f32(f32::from_le_bytes(ts_bytes)));
+                new_kv.exp_ts = Some(UNIX_EPOCH + Duration::from_secs_f32(u32::from_le_bytes(ts_bytes) as f32));
                 i += 4;     // skip timestamp(next 4 bytes, if timestamp was stored in secs)
+            } else if buf[i] == _RDB_TIMESTAMP_MS_FLAG {
+                i += 1;     // skip flag byte(current)
+                let mut ts_bytes: [u8; 8] = [0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0];
+                for j in 0..8 {
+                    ts_bytes[j] = buf[i + j];
+                }
+                new_kv.exp_ts = Some(UNIX_EPOCH + Duration::from_millis(u64::from_le_bytes(ts_bytes)));
+                i += 8;     // skip timestamp(next 8 bytes, if timestamp was stored in msecs)
             }
             i += 1;     // skip value type byte
-
+            println!("parsed timing info");
             // if k is an integer then you need to parse it like above  
             // buf[i] contains size encoded string size
             for &ch in &buf[(i + 1)..(i + 1 + buf[i] as usize)] {
                 new_kv.key.push(char::from(ch));
             }
+            println!("parsed key");
 
             i += 1 + buf[i] as usize;    // skip key bytes
             // currently we return all the keys because we are matching against * pattern 
@@ -136,7 +152,9 @@ pub mod methods {
             }
             i += 1 + buf[i] as usize;    // skip value bytes
 
-            storage.insert(new_kv.key, (new_kv.value, new_kv.exp_ts));
+            println!("parsed value");
+            storage.insert(new_kv.key.clone(), (new_kv.value.clone(), new_kv.exp_ts.clone()));
+            println!("record inserted: {:?}", new_kv);
         }
     }
 
@@ -166,8 +184,8 @@ pub mod methods {
             if let Some(ts) = timestamp {
                 // timestamp flag
                 // timstamp bytes(4)
-                out_bytes.put_u8(0xFD); // +1B
-                out_bytes.put_f32(ts.duration_since(UNIX_EPOCH).ok().unwrap().as_secs_f32());   // +4B; always store in secs
+                out_bytes.put_u8(_RDB_TIMESTAMP_MS_FLAG); // +1B
+                out_bytes.put_u64(ts.duration_since(UNIX_EPOCH).ok().unwrap().as_millis() as u64);   // +8B; always store in ms
             } 
             // else no timestamp flag and dat a for this k, v pair
 
@@ -201,9 +219,9 @@ pub mod methods {
     }
 
     // change this signature to take StorageKV struct
-    pub fn cmd_set(key: &String, val: &String, val2: Option<SystemTime>, storage: &mut HashMap<String, (String, Option<SystemTime>)>) {
-        println!("setting {} to {} for {:?}ms", key, val, val2);
-        storage.insert(key.clone(), (val.clone(), val2));
+    pub fn cmd_set(new_kv: StorageKV, storage: &mut HashMap<String, (String, Option<SystemTime>)>) {
+        println!("insert new record: {:?}", new_kv);
+        storage.insert(new_kv.key, (new_kv.value, new_kv.exp_ts));
     }
 
     // first correct use of lifetimes ???? 
