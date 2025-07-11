@@ -1,7 +1,16 @@
 pub mod utils {
-    // use std::{collections::HashMap, fmt::format, fs::create_dir, hash::Hash, io::{stdout, BufWriter, ErrorKind, Write}, mem::uninitialized, ops::BitAnd, slice, time::{Duration, SystemTime, UNIX_EPOCH}, vec};
-    // use bytes::{BufMut, BytesMut};
-    // use bytes::{Bytes, BytesMut};
+    use std::{mem::ManuallyDrop, time::SystemTime};
+    // this module provides frequently used funtions, constants, types
+    pub union RDBValue {
+        s: ManuallyDrop<String>,
+        n: i64, 
+    }
+
+    pub struct StorageKV { 
+        pub key     :String,
+        pub value   :String, 
+        pub exp_ts  :Option<SystemTime>,
+    }
 
     pub const DELIM: u8 = b'\r';
     pub const SKIP_LEN: usize = 2;

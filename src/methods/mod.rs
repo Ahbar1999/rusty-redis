@@ -1,20 +1,37 @@
 pub mod methods {
+    // this method contains all the redist command methods
+
     use std::io::ErrorKind;
     use std::{collections::HashMap, ops::BitAnd, time::{Duration, SystemTime, UNIX_EPOCH}, vec};
     use bytes::BufMut;
-    // use bytes::{Bytes, BytesMut};
     use tokio::{fs::File, io::{AsyncReadExt, AsyncWriteExt}};
     use crc64::crc64;
     use crate::utils::utils::*;
-
-    pub async fn cmd_keys(dir: &String, dbfilename: &String) -> String {
+    
+    pub async fn cmd_keys(dbfilename: &String, storage: &mut HashMap<String, (String, Option<SystemTime>)>) -> String {
         let mut matched_keys: Vec<String> = vec![];
+
+        cmd_sync(dbfilename, storage).await;
+        if !storage.is_empty() {
+            for (key, _) in storage {
+                // add code for pattern matching keys in the future 
+                matched_keys.push(key.clone());
+            }
+        }
+
+        encode_array(&matched_keys)
+    }
+
+    pub async fn cmd_sync(dbfilepath: &String, storage: &mut HashMap<String, (String, Option<SystemTime>)>) {
         // read the rdb file
         // read the keys, match them against some given pattern
         // we could simply search this in the storage map but i wanna do it the right way
-        let path =dir.clone() + dbfilename.as_str();
-        println!("reading from file {}", &path);
-        let file = File::open(&path).await;
+        // let path =dir.clone() + dbfilename.as_str();
+        if dbfilepath.starts_with("UNSET") {
+            return;
+        }
+        println!("reading from file {}", &dbfilepath);
+        let file = File::open(&dbfilepath).await;
         let mut buf: Vec<u8> = vec![];
         match file {
             Ok(mut f) => {
@@ -22,7 +39,8 @@ pub mod methods {
             },
             Err(ref e) if e.kind() == ErrorKind::NotFound => {
                 // db file does not exist so no data found
-                return encode_array(&matched_keys);
+                return;
+                // encode_array(&matched_keys);
             },
             Err(e) => {
                 panic!("{}", e);
@@ -30,9 +48,13 @@ pub mod methods {
         }
 
         // print the hex dump of the file
+        println!("hex dump of rdb file");
         println!("{}", buf.iter().map(|b| format!("{:02X} ", b)).collect::<String>());
 
-        let mut key: String;
+        // let mut key: String;
+        // let mut value: String;
+        // let mut ts: Option<SystemTime> = None;
+
         let mut i = 9; // skip header bytes
         let mut mask;
 
@@ -70,15 +92,29 @@ pub mod methods {
         }
 
         while i < buf.len() {
-            key = String::new();
+            let mut new_kv = StorageKV{
+                key: String::from(""), 
+                value: String::from(""), 
+                exp_ts: None
+            }; 
+            // key = String::new();
+            // value = String::new();
+            // ts = None;
+
             // 0xFF marks end of the db file section
             if buf[i] == _RDB_END_ {
                 break;
             }
 
             // i += 1;     // skip flag byte
+            // better to always store timestamp in secs or ms, currently we only check of secs 
             if buf[i] == _RDB_TIMESTAMP_MS_FLAG || buf[i] == _RDB_TIMESTAMP_S_FLAG { // if timestamp flag present
                 i += 1;     // skip flag byte(current)
+                let mut ts_bytes: [u8; 4] = [0x0, 0x0, 0x0, 0x0];
+                for j in 0..4 {
+                    ts_bytes[i + j] = buf[i + j];
+                }
+                new_kv.exp_ts = Some(UNIX_EPOCH + Duration::from_secs_f32(f32::from_le_bytes(ts_bytes)));
                 i += 4;     // skip timestamp(next 4 bytes, if timestamp was stored in secs)
             }
             i += 1;     // skip value type byte
@@ -86,29 +122,28 @@ pub mod methods {
             // if k is an integer then you need to parse it like above  
             // buf[i] contains size encoded string size
             for &ch in &buf[(i + 1)..(i + 1 + buf[i] as usize)] {
-                key.push(char::from(ch));
+                new_kv.key.push(char::from(ch));
             }
 
-            // currently we return all the keys because we are matching against * pattern 
-            matched_keys.push(key);
-
-            // skip key size byte + key length bytes 
             i += 1 + buf[i] as usize;    // skip key bytes
-            i += 1 + buf[i] as usize;    // skip value bytes
-        }
+            // currently we return all the keys because we are matching against * pattern 
+            // matched_keys.push(key);
+            // skip key size byte + key length bytes
 
-        encode_array(&matched_keys)
+            // currently the values are also prefix encoded strings so this works  
+            for &ch in &buf[(i + 1)..(i + 1 + buf[i] as usize)] {
+                new_kv.value.push(char::from(ch));
+            }
+            i += 1 + buf[i] as usize;    // skip value bytes
+
+            storage.insert(new_kv.key, (new_kv.value, new_kv.exp_ts));
+        }
     }
 
-    pub async fn cmd_save(storage: &HashMap<String, (String, SystemTime, Option<usize>)>, dir: &String, dbfilename: &String) -> String {
-        // create new directory 
-        tokio::fs::create_dir_all(&dir).await.unwrap();
-        println!("{} directory created", &dir);
-        // create new dbfile with "dbfilename" in the dir directory 
-        let path = dir.clone() + dbfilename.as_str();
-
-        println!("creating file {}", &path); 
-        let mut out = tokio::fs::File::create(&path).await.unwrap();
+    pub async fn cmd_save(storage: &HashMap<String, (String, Option<SystemTime>)>, dbfilepath: &String) -> String {
+        // assumes the directory structure already exists
+        println!("creating file {}", &dbfilepath); 
+        let mut out = tokio::fs::File::create(&dbfilepath).await.unwrap();
         let mut out_bytes: Vec<u8> = vec![];
         for &b in b"REDIS0011" { // +9 bytes
             out_bytes.put_u8(b);
@@ -122,20 +157,19 @@ pub mod methods {
         // count of total k, v pairs
         // todo!("following two sizes need to be different!");
         out_bytes.put_u8(storage.len() as u8);   // +1B
-        // out.write_all(&((storage.len() << 2) as u8).to_le_bytes()).await.unwrap(); // size encoded table size value 
         // count of timed k, v pairs same as above;
         out_bytes.put_u8(storage.len() as u8);   // +1B
         // out.write_all(&((storage.len() << 2) as u8).to_le_bytes()).await.unwrap();
 
         // while reading the file we can skip bytes until here
-        for (k, (value, timestamp, exp)) in storage.iter() {
-            if let Some(n) = exp {
+        for (k, (value, timestamp)) in storage.iter() {
+            if let Some(ts) = timestamp {
                 // timestamp flag
                 // timstamp bytes(4)
                 out_bytes.put_u8(0xFD); // +1B
-                out_bytes.put_f32(timestamp.duration_since(UNIX_EPOCH).ok().unwrap().saturating_add(Duration::from_millis(*n as u64)).as_secs_f32());
-            }
-            // out_bytes.put_f32(new_ts.as_secs_f32());    // +4B
+                out_bytes.put_f32(ts.duration_since(UNIX_EPOCH).ok().unwrap().as_secs_f32());   // +4B; always store in secs
+            } 
+            // else no timestamp flag and dat a for this k, v pair
 
             // value type byte
             out_bytes.put_u8(0);    // +1B
@@ -166,41 +200,32 @@ pub mod methods {
         String::from("+OK\r\n")
     }
 
-    pub fn cmd_set(key: &String, val: &String, val2: SystemTime, val3: Option<usize>,  storage: &mut HashMap<String, (String, SystemTime, Option<usize>)>) {
+    // change this signature to take StorageKV struct
+    pub fn cmd_set(key: &String, val: &String, val2: Option<SystemTime>, storage: &mut HashMap<String, (String, Option<SystemTime>)>) {
         println!("setting {} to {} for {:?}ms", key, val, val2);
-        storage.insert(key.clone(), (val.clone(), val2, val3));
+        storage.insert(key.clone(), (val.clone(), val2));
     }
 
     // first correct use of lifetimes ???? 
     // i used to pray for times like these 
-    pub fn cmd_get<'a>(key: &String, storage: &'a mut HashMap<String, (String, SystemTime, Option<usize>)>) -> Option<&'a String> {
+    pub async fn cmd_get<'a>(key: &String, dbfilepath: &String, storage: &'a mut HashMap<String, (String, Option<SystemTime>)>) -> Option<&'a String> {
+        // syncing db
+        println!("syncing db"); 
+        cmd_sync(dbfilepath, storage).await;
         println!("searching for {:?}", key);
 
         // rewrap for our purposes
         match storage.get(key) {
-            Some((res, t, exp)) => {
-                match t.elapsed() {
-                    Ok(t_elapsed) => {
-                        match exp {
-                            None => Some(res),  // if no expiry 
-                            Some(n) => {
-                                if t_elapsed.as_millis() > *n as u128 {
-                                    // we could add deletion but we leave it for now
-                                    // as it would require us to return concrete strings not slices
-                                    // because after deletion slices wont be available to return hence the compilation error
-                                    // storage.remove_entry(key);
-                                    None
-                                } else {
-                                    Some (res)
-                                }
-                            }
+            Some((res, ts)) => {
+                match ts {
+                    Some(n) => {
+                        if *n < SystemTime::now() {
+                            None
+                        } else {
+                            Some (res)
                         }
-                        // println!("time elapsed: {:?}", t_elapsed);
                     },
-                    Err(e) => {
-                        println!("{}", e);
-                        None
-                    }
+                    None => Some(res),  // if no expiry 
                 }
             },
             None => {
@@ -208,6 +233,10 @@ pub mod methods {
                 None
             }
         }
+    }
+
+    async fn cmd_get_key_rdb() -> Option<RDBValue> {
+        unimplemented!()
     }
 }
 
