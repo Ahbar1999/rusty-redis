@@ -1,4 +1,6 @@
-use std::{collections::HashMap, io::ErrorKind, time::{Duration, SystemTime}, vec};
+use std::{collections::HashMap, fmt::format, io::ErrorKind, sync::Arc, time::{Duration, SystemTime}, vec};
+// use clap::{Arg, ArgAction, Args};
+use clap::Parser;
 use tokio::{io::AsyncWriteExt, net::{TcpListener, TcpStream}};
 use crate::utils::utils::*;
 use crate::methods::methods::*;
@@ -7,33 +9,39 @@ pub mod utils;
 
 #[tokio::main]
 async fn main() {
-    let listener = TcpListener::bind("127.0.0.1:6379").await.unwrap();
+    // parse command line arguments
+    let config_args = Args::parse();
+
+    let listener = TcpListener::bind(format!("127.0.0.1:{}", config_args.port)).await.unwrap();
 
     loop {
         let (stream, _)  = listener.accept().await.unwrap();
+        let args_copy = config_args.clone();
         // this spawns a tokio "asyncrhonous green thread" 
         tokio::spawn(async move {
-            conn(stream).await;
+
+            conn(stream, args_copy).await;
         });
     }
 }
 
-async fn conn(mut _stream: TcpStream) { // represents an incoming connection
+async fn conn(mut _stream: TcpStream, config_args: Args) { // represents an incoming connection
     // convert his hashmap to <String, (String, Option<TimeStamp>)> where TimeStamp is expiry TimeStamp
     let mut storage: HashMap<String, (String, Option<SystemTime>)> = HashMap::new();
-    let params: Vec<String> = std::env::args().collect();
-    let mut dir = String::from("UNSET");
-    let mut dbfilename = String::from("dump.rdb");
 
-    if params.len() > 4 {
-        dir = params[2].clone();
-        dbfilename = params[4].clone();
-    }
+    // let params: Vec<String> = std::env::args().collect();
+    // let mut dir = String::from("UNSET");
+    // let mut dbfilename = String::from("dump.rdb");
 
-    tokio::fs::create_dir_all(&dir).await.unwrap();
-    println!("{} directory created", &dir);
+    // if params.len() > 4 {
+    //     dir = params[2].clone();
+    //     dbfilename = params[4].clone();
+    // }
 
-    let dbfilepath = dir.clone() + "/" + dbfilename.as_str();
+    tokio::fs::create_dir_all(&config_args.dir).await.unwrap();
+    println!("{} directory created", &config_args.dir);
+
+    let dbfilepath = config_args.dir.clone() + "/" + config_args.dbfilename.as_str();
 
     // println!("{:?}", args);
     let mut input_buf: Vec<u8> = vec![0; 1024]; 
@@ -61,27 +69,27 @@ async fn conn(mut _stream: TcpStream) { // represents an incoming connection
         // _stream.writable().await.unwrap();
         // let data = input_buf[0..bytes_rx]; 
         let mut output: String = String::from("");
-        let mut args = parse(0, &input_buf);  // these are basically commands, at one point we will have to parse commands with their parameters, they could be int, boolean etc.   
-        args[0] = args[0].to_uppercase();
+        let mut cmd_args = parse(0, &input_buf);  // these are basically commands, at one point we will have to parse commands with their parameters, they could be int, boolean etc.   
+        cmd_args[0] = cmd_args[0].to_uppercase();
         
 
-        match args[0].as_str() {
+        match cmd_args[0].as_str() {
             "ECHO" => {
-                output = encode_bulk(&args[1]);
+                output = encode_bulk(&cmd_args[1]);
             },
             "PING" => {
                 output = encode_bulk("PONG");
             },
             "SET" => {
                 let mut new_kv = StorageKV {
-                    key: args[1].clone(),
-                    value: args[2].clone(),
+                    key: cmd_args[1].clone(),
+                    value: cmd_args[2].clone(),
                     exp_ts: None,
                 };
 
-                if args.len() > 3 { // input validation is not being performed
+                if cmd_args.len() > 3 { // input validation is not being performed
                     // SET foo bar px milliseconds
-                    let n = args[4].parse().unwrap();
+                    let n = cmd_args[4].parse().unwrap();
                     new_kv.exp_ts = SystemTime::now().checked_add(Duration::from_millis(n));
                 }
                 cmd_set(new_kv, &mut storage);
@@ -89,7 +97,7 @@ async fn conn(mut _stream: TcpStream) { // represents an incoming connection
                 output = response_ok();
             },
             "GET" => {
-                match cmd_get(&args[1], &dbfilepath, &mut storage).await {
+                match cmd_get(&cmd_args[1], &dbfilepath, &mut storage).await {
                     Some(s) => {
                         output = encode_bulk(s);
                     },
@@ -99,15 +107,13 @@ async fn conn(mut _stream: TcpStream) { // represents an incoming connection
                 }
             },
             "CONFIG" => {
-                match args[2].as_str() {
+                // todo!("refactor the followign code");
+                match cmd_args[2].as_str() {
                     "dir" => {
-                        // because we are adding an extra forward slash to join paths, we need to return the original string
-                        output = format!("*2\r\n$3\r\ndir\r\n${}\r\n{}\r\n", dir.len(), &dir);
-                        // dir = output.clone();
+                        output = format!("*2\r\n$3\r\ndir\r\n${}\r\n{}\r\n", &config_args.dir.len(), &config_args.dir);
                     },
                     "dbfilename" => {
-                        output = format!("*2\r\n$10\r\ndbfilename\r\n${}\r\n{}\r\n", dbfilename.len(), &dbfilename);
-                        // dbfilename = output.clone();
+                        output = format!("*2\r\n$10\r\ndbfilename\r\n${}\r\n{}\r\n", config_args.dbfilename.len(), &config_args.dbfilename);
                     },
                     _ => {
                         unimplemented!();

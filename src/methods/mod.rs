@@ -1,5 +1,5 @@
 pub mod methods {
-    // this method contains all the redist command methods
+    // this module contains all the redist command methods
 
     use std::io::ErrorKind;
     use std::{collections::HashMap, ops::BitAnd, time::{Duration, SystemTime, UNIX_EPOCH}, vec};

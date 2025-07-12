@@ -1,5 +1,6 @@
 pub mod utils {
     use std::{mem::ManuallyDrop, time::SystemTime};
+    use clap::Parser;
     // this module provides frequently used funtions, constants, types
     pub union RDBValue {
         s: ManuallyDrop<String>,
@@ -11,6 +12,18 @@ pub mod utils {
         pub key     :String,
         pub value   :String, 
         pub exp_ts  :Option<SystemTime>,
+    }
+
+    #[derive(Parser, Debug, Clone)]
+    pub struct Args {
+        #[arg(short, long, default_value_t=String::from("UNSET"))]
+        pub dir: String,
+
+        #[arg(short, long, default_value_t=String::from("UNSET"))]
+        pub dbfilename: String,
+
+        #[arg(short, long, default_value_t=6379)]
+        pub port: u16 
     }
 
     pub const DELIM: u8 = b'\r';
