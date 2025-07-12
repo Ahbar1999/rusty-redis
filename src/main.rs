@@ -58,41 +58,38 @@ async fn conn(mut _stream: TcpStream, config_args: Args) { // represents an inco
         // respond to th command; currently without any error handling
         // _stream.writable().await.unwrap();
         // let data = input_buf[0..bytes_rx]; 
-        let mut output: String = String::from("");
         let mut cmd_args = parse(0, &input_buf);  // these are basically commands, at one point we will have to parse commands with their parameters, they could be int, boolean etc.   
         cmd_args[0] = cmd_args[0].to_uppercase();
         
-
-        match cmd_args[0].as_str() {
+        let output = match cmd_args[0].as_str() {
             "ECHO" => {
-                output = encode_bulk(&cmd_args[1]);
+                encode_bulk(&cmd_args[1])
             },
             "PING" => {
-                output = encode_bulk("PONG");
+                encode_bulk("PONG")
             },
             "SET" => {
-                // todo!("refactor following code");
-                output = cmd_set(&cmd_args, &mut storage);
+                cmd_set(&cmd_args, &mut storage)
             },
             "GET" => {
-                output = cmd_get(&cmd_args[1], &dbfilepath, &mut storage).await; 
+                cmd_get(&cmd_args[1], &dbfilepath, &mut storage).await 
             },
             "CONFIG" => {
-                output = cmd_config(&cmd_args[2], &config_args);
+                cmd_config(&cmd_args[2], &config_args)
             },
             "SAVE" => {
-                output = cmd_save(&storage, &dbfilepath).await;
+                cmd_save(&storage, &dbfilepath).await
             },
             "KEYS" => {
-                output = cmd_keys(&dbfilepath, &mut storage).await;
+                cmd_keys(&dbfilepath, &mut storage).await
             },
             "INFO" => {
-                output = cmd_info();
+                cmd_info(&config_args)
             }
             _ => {
                 unimplemented!("Unidentified command");
             }
-        } 
+        };
 
         println!("sending: {}", output);
         _stream.write_all(output.as_bytes()).await.unwrap();

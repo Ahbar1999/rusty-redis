@@ -9,8 +9,8 @@ pub mod methods {
     use crate::utils::utils::*;
 
     // return bulk encoded string  
-    pub fn cmd_info() -> String {
-        encode_bulk("role:master") 
+    pub fn cmd_info(config_args: &Args) -> String {
+        encode_bulk(format!("role:{}", if config_args.replicaof.starts_with("None") {"master"} else {"slave"}).as_str())
     }
 
     pub fn cmd_config(query: &String, config_args: &Args) -> String {

@@ -24,7 +24,10 @@ pub mod utils {
         pub dbfilename: String,
 
         #[arg(short, long, default_value_t=6379)]
-        pub port: u16 
+        pub port: u16,
+
+        #[arg(short, long, default_value_t=String::from("None"))]
+        pub replicaof: String,
     }
 
     pub const DELIM: u8 = b'\r';
