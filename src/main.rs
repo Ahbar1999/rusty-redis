@@ -11,19 +11,45 @@ pub mod utils;
 async fn main() {
     // parse command line arguments
     let mut config_args = Args::parse();
-    if config_args.replicaof.starts_with("UNSET") {
+    if config_args.replicaof.starts_with("None") {
         config_args.master_replid = String::from("8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb");
         config_args.master_repl_offset = 0;
     } 
 
     let listener = TcpListener::bind(format!("127.0.0.1:{}", config_args.port)).await.unwrap();
+    println!("connected on port: {}", config_args.port);
+    
+    // connect with master if slave
+    if config_args.replicaof.starts_with("None") {
+        master_conn(listener, config_args).await;
+    } else {
+        slave_conn(listener, config_args).await; 
+    } 
+}
+
+async fn slave_conn(listener :TcpListener, config_args: Args) {
+    println!("is a slave");
+    let (master_addr, master_port) = config_args.replicaof.split_once(' ').unwrap();
+    let mut master_stream = connect_to_master(master_addr, master_port).await;
+    master_stream.write_all(encode_array(&vec![String::from("PING")]).as_bytes()).await.unwrap();
 
     loop {
         let (stream, _)  = listener.accept().await.unwrap();
         let args_copy = config_args.clone();
         // this spawns a tokio "asyncrhonous green thread" 
         tokio::spawn(async move {
+            conn(stream, args_copy).await;
+        });
+    }
+}
 
+async fn master_conn(listener :TcpListener, config_args: Args) {
+    println!("is a master");
+    loop {
+        let (stream, _)  = listener.accept().await.unwrap();
+        let args_copy = config_args.clone();
+        // this spawns a tokio "asyncrhonous green thread" 
+        tokio::spawn(async move {
             conn(stream, args_copy).await;
         });
     }
@@ -32,13 +58,14 @@ async fn main() {
 async fn conn(mut _stream: TcpStream, config_args: Args) { // represents an incoming connection
     let mut storage: HashMap<String, (String, Option<SystemTime>)> = HashMap::new();
 
-    tokio::fs::create_dir_all(&config_args.dir).await.unwrap();
-    println!("{} directory created", &config_args.dir);
+    if !config_args.dir.starts_with("UNSET") {
+        tokio::fs::create_dir_all(&config_args.dir).await.unwrap();
+        println!("{} directory created", &config_args.dir);
+    }
 
     let dbfilepath = config_args.dir.clone() + "/" + config_args.dbfilename.as_str();
 
-    // println!("{:?}", args);
-    let mut input_buf: Vec<u8> = vec![0; 1024]; 
+    let mut input_buf: Vec<u8> = vec![0; 1024];
 
     loop {
         input_buf.fill(0);

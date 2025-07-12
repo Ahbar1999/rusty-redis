@@ -4,11 +4,17 @@ pub mod methods {
     use std::io::ErrorKind;
     use std::{collections::HashMap, ops::BitAnd, time::{Duration, SystemTime, UNIX_EPOCH}, vec};
     use bytes::BufMut;
+    use tokio::net::TcpStream;
     use tokio::{fs::File, io::{AsyncReadExt, AsyncWriteExt}};
     use crc64::crc64;
     use crate::utils::utils::*;
 
-    // return bulk encoded string  
+
+    pub async fn connect_to_master(addr: &str, socket: &str) -> TcpStream {
+        println!("slave connecting to master on:{}", socket);
+        TcpStream::connect(format!("{}:{}", addr, socket)).await.unwrap() 
+    }
+
     pub fn cmd_info(config_args: &Args) -> String {
         let mut res = String::new();
         res.push_str(&format!("role:{}", if config_args.replicaof.starts_with("None") {"master"} else {"slave"}).as_str());
