@@ -26,17 +26,7 @@ async fn main() {
 }
 
 async fn conn(mut _stream: TcpStream, config_args: Args) { // represents an incoming connection
-    // convert his hashmap to <String, (String, Option<TimeStamp>)> where TimeStamp is expiry TimeStamp
     let mut storage: HashMap<String, (String, Option<SystemTime>)> = HashMap::new();
-
-    // let params: Vec<String> = std::env::args().collect();
-    // let mut dir = String::from("UNSET");
-    // let mut dbfilename = String::from("dump.rdb");
-
-    // if params.len() > 4 {
-    //     dir = params[2].clone();
-    //     dbfilename = params[4].clone();
-    // }
 
     tokio::fs::create_dir_all(&config_args.dir).await.unwrap();
     println!("{} directory created", &config_args.dir);
@@ -81,44 +71,14 @@ async fn conn(mut _stream: TcpStream, config_args: Args) { // represents an inco
                 output = encode_bulk("PONG");
             },
             "SET" => {
-                let mut new_kv = StorageKV {
-                    key: cmd_args[1].clone(),
-                    value: cmd_args[2].clone(),
-                    exp_ts: None,
-                };
-
-                if cmd_args.len() > 3 { // input validation is not being performed
-                    // SET foo bar px milliseconds
-                    let n = cmd_args[4].parse().unwrap();
-                    new_kv.exp_ts = SystemTime::now().checked_add(Duration::from_millis(n));
-                }
-                cmd_set(new_kv, &mut storage);
-
-                output = response_ok();
+                // todo!("refactor following code");
+                output = cmd_set(&cmd_args, &mut storage);
             },
             "GET" => {
-                match cmd_get(&cmd_args[1], &dbfilepath, &mut storage).await {
-                    Some(s) => {
-                        output = encode_bulk(s);
-                    },
-                    None => {
-                        output = encode_bulk(&output);
-                    }
-                }
+                output = cmd_get(&cmd_args[1], &dbfilepath, &mut storage).await; 
             },
             "CONFIG" => {
-                // todo!("refactor the followign code");
-                match cmd_args[2].as_str() {
-                    "dir" => {
-                        output = format!("*2\r\n$3\r\ndir\r\n${}\r\n{}\r\n", &config_args.dir.len(), &config_args.dir);
-                    },
-                    "dbfilename" => {
-                        output = format!("*2\r\n$10\r\ndbfilename\r\n${}\r\n{}\r\n", config_args.dbfilename.len(), &config_args.dbfilename);
-                    },
-                    _ => {
-                        unimplemented!();
-                    }
-                }
+                output = cmd_config(&cmd_args[2], &config_args);
             },
             "SAVE" => {
                 output = cmd_save(&storage, &dbfilepath).await;
@@ -126,8 +86,11 @@ async fn conn(mut _stream: TcpStream, config_args: Args) { // represents an inco
             "KEYS" => {
                 output = cmd_keys(&dbfilepath, &mut storage).await;
             },
+            "INFO" => {
+                output = cmd_info();
+            }
             _ => {
-                unimplemented!();
+                unimplemented!("Unidentified command");
             }
         } 
 

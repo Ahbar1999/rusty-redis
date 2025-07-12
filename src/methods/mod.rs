@@ -7,7 +7,26 @@ pub mod methods {
     use tokio::{fs::File, io::{AsyncReadExt, AsyncWriteExt}};
     use crc64::crc64;
     use crate::utils::utils::*;
-    
+
+    // return bulk encoded string  
+    pub fn cmd_info() -> String {
+        encode_bulk("role:master") 
+    }
+
+    pub fn cmd_config(query: &String, config_args: &Args) -> String {
+        match query.as_str() {
+            "dir" => {
+                format!("*2\r\n$3\r\ndir\r\n${}\r\n{}\r\n", &config_args.dir.len(), &config_args.dir)
+            },
+            "dbfilename" => {
+                format!("*2\r\n$10\r\ndbfilename\r\n${}\r\n{}\r\n", config_args.dbfilename.len(), &config_args.dbfilename)
+            },
+            _ => {
+                unimplemented!("Unexpected config parameter requested: {}", query);
+            }
+        }
+    }
+
     pub async fn cmd_keys(dbfilename: &String, storage: &mut HashMap<String, (String, Option<SystemTime>)>) -> String {
         let mut matched_keys: Vec<String> = vec![];
 
@@ -219,21 +238,34 @@ pub mod methods {
     }
 
     // change this signature to take StorageKV struct
-    pub fn cmd_set(new_kv: StorageKV, storage: &mut HashMap<String, (String, Option<SystemTime>)>) {
+    pub fn cmd_set(cmd_args: &Vec<String>, storage: &mut HashMap<String, (String, Option<SystemTime>)>) -> String {
+        let mut new_kv = StorageKV {
+            key: cmd_args[1].clone(),
+            value: cmd_args[2].clone(),
+            exp_ts: None,
+        };
+
+        if cmd_args.len() > 3 { // input validation is not being performed
+            // SET foo bar px milliseconds
+            let n = cmd_args[4].parse().unwrap();
+            new_kv.exp_ts = SystemTime::now().checked_add(Duration::from_millis(n));
+        }
         println!("insert new record: {:?}", new_kv);
         storage.insert(new_kv.key, (new_kv.value, new_kv.exp_ts));
+
+        response_ok()
     }
 
     // first correct use of lifetimes ???? 
     // i used to pray for times like these 
-    pub async fn cmd_get<'a>(key: &String, dbfilepath: &String, storage: &'a mut HashMap<String, (String, Option<SystemTime>)>) -> Option<&'a String> {
+    pub async fn cmd_get<'a>(key: &String, dbfilepath: &String, storage: &mut HashMap<String, (String, Option<SystemTime>)>) -> String {
         // syncing db
         println!("syncing db"); 
         cmd_sync(dbfilepath, storage).await;
         println!("searching for {:?}", key);
 
         // rewrap for our purposes
-        match storage.get(key) {
+        let result = match storage.get(key) {
             Some((res, ts)) => {
                 match ts {
                     Some(n) => {
@@ -249,6 +281,15 @@ pub mod methods {
             None => {
                 println!("did not find key");
                 None
+            }
+        };
+
+        match result {
+            Some(s) => {
+                encode_bulk(s)
+            },
+            None =>{
+                encode_bulk("")
             }
         }
     }
