@@ -28,6 +28,12 @@ pub mod utils {
 
         #[arg(short, long, default_value_t=String::from("None"))]
         pub replicaof: String,
+
+        #[arg(short, long, default_value_t=String::from("None"))]
+        pub master_replid: String,
+        
+        #[arg(short, long, default_value_t=0)]
+        pub master_repl_offset: u32,
     }
 
     pub const DELIM: u8 = b'\r';

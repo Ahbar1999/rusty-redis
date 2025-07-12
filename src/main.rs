@@ -10,7 +10,11 @@ pub mod utils;
 #[tokio::main]
 async fn main() {
     // parse command line arguments
-    let config_args = Args::parse();
+    let mut config_args = Args::parse();
+    if config_args.replicaof.starts_with("UNSET") {
+        config_args.master_replid = String::from("8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb");
+        config_args.master_repl_offset = 0;
+    } 
 
     let listener = TcpListener::bind(format!("127.0.0.1:{}", config_args.port)).await.unwrap();
 

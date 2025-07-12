@@ -10,7 +10,14 @@ pub mod methods {
 
     // return bulk encoded string  
     pub fn cmd_info(config_args: &Args) -> String {
-        encode_bulk(format!("role:{}", if config_args.replicaof.starts_with("None") {"master"} else {"slave"}).as_str())
+        let mut res = String::new();
+        res.push_str(&format!("role:{}", if config_args.replicaof.starts_with("None") {"master"} else {"slave"}).as_str());
+        if config_args.replicaof.starts_with("None") {
+            res.push_str(&format!("\nmaster_replid:{}", config_args.master_replid));
+            res.push_str(&format!("\nmaster_repl_offset:{}", config_args.master_repl_offset));
+        }  
+        
+        encode_bulk(&res)
     }
 
     pub fn cmd_config(query: &String, config_args: &Args) -> String {
