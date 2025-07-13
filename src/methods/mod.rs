@@ -9,7 +9,6 @@ pub mod methods {
     use crc64::crc64;
     use crate::utils::utils::*;
 
-
     pub async fn connect_to_master(addr: &str, socket: &str) -> TcpStream {
         println!("slave connecting to master on:{}", socket);
         TcpStream::connect(format!("{}:{}", addr, socket)).await.unwrap() 

@@ -55,7 +55,7 @@ async fn slave_conn(listener :TcpListener, config_args: Args) {
     master_stream.write_all(encode_array(&vec![format!("PSYNC"), format!("?"), format!("{}", -1)]).as_bytes()).await.unwrap();
     input_buf.fill(0);
     master_stream.read_buf(&mut input_buf).await.unwrap();
-    // expect FULLRESYNC
+    // expect FULLRESYNC, ignore respeonse
 
     loop {
         let (stream, _)  = listener.accept().await.unwrap();
@@ -140,6 +140,9 @@ async fn conn(mut _stream: TcpStream, config_args: Args) { // represents an inco
             },
             "INFO" => {
                 cmd_info(&config_args)
+            },
+            "REPLCONF" => {
+                response_ok()
             }
             _ => {
                 unimplemented!("Unidentified command");
