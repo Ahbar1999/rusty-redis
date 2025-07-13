@@ -35,6 +35,7 @@ async fn slave_conn(listener :TcpListener, config_args: Args) {
     let (master_addr, master_port) = config_args.replicaof.split_once(' ').unwrap();
     let mut master_stream = connect_to_master(master_addr, master_port).await;
     master_stream.write_all(encode_array(&vec![String::from("PING")]).as_bytes()).await.unwrap();
+    // expect PONG
     input_buf.fill(0);
     master_stream.read_buf(&mut input_buf).await.unwrap();
     // expect PONG
@@ -42,13 +43,19 @@ async fn slave_conn(listener :TcpListener, config_args: Args) {
     // send 2 replconf commands
     master_stream.write_all(encode_array(&vec![format!("REPLCONF"), format!("listening-port"), format!("{}", config_args.port)]).as_bytes()).await.unwrap();
     input_buf.fill(0);
-    master_stream.read_buf(&mut input_buf).await.unwrap();
+    master_stream.read_buf(&mut input_buf).await.unwrap();  // single call works because we arent transmitting large amounts of data
+                                                            // in the future we will probably need to read until EOF or we lose data       
     // expect OK
 
     master_stream.write_all(encode_array(&vec![format!("REPLCONF"), format!("capa"), format!("npsnyc2")]).as_bytes()).await.unwrap();
     input_buf.fill(0);
     master_stream.read_buf(&mut input_buf).await.unwrap();
     // expect OK
+
+    master_stream.write_all(encode_array(&vec![format!("PSYNC"), format!("?"), format!("{}", -1)]).as_bytes()).await.unwrap();
+    input_buf.fill(0);
+    master_stream.read_buf(&mut input_buf).await.unwrap();
+    // expect FULLRESYNC
 
     loop {
         let (stream, _)  = listener.accept().await.unwrap();
