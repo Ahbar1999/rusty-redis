@@ -9,6 +9,29 @@ pub mod methods {
     use crc64::crc64;
     use crate::utils::utils::*;
 
+    pub async fn cmd_fullresync(config_args: &Args) -> Vec<u8> {
+        // in future we would wanna read contents from the file on disk and return it
+        // right now the server expects us to hard code contents of such a file   
+        encode_file(_EMPTY_RDB_FILE_.as_bytes()) 
+    }
+
+    pub fn encode_file(contents: &[u8]) -> Vec<u8> {
+        let raw_bytes = hex::decode(contents).unwrap(); 
+        let mut res= Vec::<u8>::new(); 
+        res.push(b'$');
+        for b in raw_bytes.len().to_string().as_bytes() {
+            res.push(*b);
+        }
+        res.push(b'\r');
+        res.push(b'\n');
+
+        for b in raw_bytes {
+            res.push(b);
+        }
+
+        res
+    }
+
     pub fn cmd_psync(config_args: &Args) -> String {
         encode_simple(&vec!["FULLRESYNC", format!("{}", config_args.master_replid).as_str(), format!("{}", config_args.master_repl_offset).as_str()])
     } 

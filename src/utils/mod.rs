@@ -43,6 +43,7 @@ pub mod utils {
     pub const _RDB_END_: u8 = 0xFF;
     pub const _RDB_TIMESTAMP_MS_FLAG: u8 = 0xFC;
     pub const _RDB_TIMESTAMP_S_FLAG: u8 = 0xFD;
+    pub const _EMPTY_RDB_FILE_: &str= "524544495330303131fa0972656469732d76657205372e322e30fa0a72656469732d62697473c040fa056374696d65c26d08bc65fa08757365642d6d656dc2b0c41000fa08616f662d62617365c000fff06e3bfec0ff5aa2";
 
     pub fn encode_array(vals: &Vec<String>) -> String {
         let mut output = format!("*{}\r\n", vals.len());

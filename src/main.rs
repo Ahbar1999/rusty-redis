@@ -118,42 +118,44 @@ async fn conn(mut _stream: TcpStream, config_args: Args) { // represents an inco
         
         let output = match cmd_args[0].as_str() {
             "ECHO" => {
-                encode_bulk(&cmd_args[1])
+                vec![encode_bulk(&cmd_args[1]).as_bytes().to_owned()]
             },
             "PING" => {
-                encode_bulk("PONG")
+                vec![encode_bulk("PONG").as_bytes().to_owned()]
             },
             "SET" => {
-                cmd_set(&cmd_args, &mut storage)
+                vec![cmd_set(&cmd_args, &mut storage).as_bytes().to_owned()]
             },
             "GET" => {
-                cmd_get(&cmd_args[1], &dbfilepath, &mut storage).await 
+                vec![cmd_get(&cmd_args[1], &dbfilepath, &mut storage).await.as_bytes().to_owned()] 
             },
             "CONFIG" => {
-                cmd_config(&cmd_args[2], &config_args)
+                vec![cmd_config(&cmd_args[2], &config_args).as_bytes().to_owned()]
             },
             "SAVE" => {
-                cmd_save(&storage, &dbfilepath).await
+                vec![cmd_save(&storage, &dbfilepath).await.as_bytes().to_owned()]
             },
             "KEYS" => {
-                cmd_keys(&dbfilepath, &mut storage).await
+                vec![cmd_keys(&dbfilepath, &mut storage).await.as_bytes().to_owned()]
             },
             "INFO" => {
-                cmd_info(&config_args)
+                vec![cmd_info(&config_args).as_bytes().to_owned()]
             },
             "REPLCONF" => {
-                encode_simple(&vec!["OK"])
+                vec![encode_simple(&vec!["OK"]).as_bytes().to_owned()]
             },
             "PSYNC" => {
-                cmd_psync(&config_args)
+                vec![cmd_psync(&config_args).as_bytes().to_owned(), cmd_fullresync(&config_args).await] 
             },
             _ => {
                 unimplemented!("Unidentified command");
             }
         };
 
-        println!("sending: {}", output);
-        _stream.write_all(output.as_bytes()).await.unwrap();
-        // if you wanna use try_write() you will need to manually send data piece by piece by tracking bytes sent 
+        for out in output {
+            println!("sending: {}", out.iter().map(|ch| {*ch as char}).collect::<String>());
+            _stream.write_all(&out).await.unwrap();
+            // if you wanna use try_write() you will need to manually send data piece by piece by tracking bytes sent
+        } 
     }
 }
