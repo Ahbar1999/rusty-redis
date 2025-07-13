@@ -142,8 +142,11 @@ async fn conn(mut _stream: TcpStream, config_args: Args) { // represents an inco
                 cmd_info(&config_args)
             },
             "REPLCONF" => {
-                response_ok()
-            }
+                encode_simple(&vec!["OK"])
+            },
+            "PSYNC" => {
+                cmd_psync(&config_args)
+            },
             _ => {
                 unimplemented!("Unidentified command");
             }

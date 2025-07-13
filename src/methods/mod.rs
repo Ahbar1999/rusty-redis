@@ -9,6 +9,23 @@ pub mod methods {
     use crc64::crc64;
     use crate::utils::utils::*;
 
+    pub fn cmd_psync(config_args: &Args) -> String {
+        encode_simple(&vec!["FULLRESYNC", format!("{}", config_args.master_replid).as_str(), format!("{}", config_args.master_repl_offset).as_str()])
+    } 
+
+    pub fn encode_simple(vals: &Vec<&str>) -> String {
+        let mut result = vec![];
+        for &v in vals {
+            result.push(v);
+        }
+
+        let mut s = result.join(" ");
+        s.push_str("\r\n");
+        s = "+".to_owned() + &s;
+
+        s
+    }
+
     pub async fn connect_to_master(addr: &str, socket: &str) -> TcpStream {
         println!("slave connecting to master on:{}", socket);
         TcpStream::connect(format!("{}:{}", addr, socket)).await.unwrap() 
