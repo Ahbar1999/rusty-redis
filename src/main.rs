@@ -1,7 +1,7 @@
 use std::{collections::HashMap, fmt::format, io::ErrorKind, sync::Arc, time::{Duration, SystemTime}, vec};
 // use clap::{Arg, ArgAction, Args};
 use clap::Parser;
-use tokio::{io::AsyncWriteExt, net::{TcpListener, TcpStream}};
+use tokio::{io::{AsyncReadExt, AsyncWriteExt}, net::{TcpListener, TcpStream}};
 use crate::utils::utils::*;
 use crate::methods::methods::*;
 pub mod methods;
@@ -29,9 +29,26 @@ async fn main() {
 
 async fn slave_conn(listener :TcpListener, config_args: Args) {
     println!("is a slave");
+
+    // handshake stage
+    let mut input_buf: Vec<u8> = vec![0; 1024];
     let (master_addr, master_port) = config_args.replicaof.split_once(' ').unwrap();
     let mut master_stream = connect_to_master(master_addr, master_port).await;
     master_stream.write_all(encode_array(&vec![String::from("PING")]).as_bytes()).await.unwrap();
+    input_buf.fill(0);
+    master_stream.read_buf(&mut input_buf).await.unwrap();
+    // expect PONG
+
+    // send 2 replconf commands
+    master_stream.write_all(encode_array(&vec![format!("REPLCONF"), format!("listening-port"), format!("{}", config_args.port)]).as_bytes()).await.unwrap();
+    input_buf.fill(0);
+    master_stream.read_buf(&mut input_buf).await.unwrap();
+    // expect OK
+
+    master_stream.write_all(encode_array(&vec![format!("REPLCONF"), format!("capa"), format!("npsnyc2")]).as_bytes()).await.unwrap();
+    input_buf.fill(0);
+    master_stream.read_buf(&mut input_buf).await.unwrap();
+    // expect OK
 
     loop {
         let (stream, _)  = listener.accept().await.unwrap();
