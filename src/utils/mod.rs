@@ -1,6 +1,8 @@
 pub mod utils {
     use std::{mem::ManuallyDrop, time::SystemTime};
     use clap::Parser;
+    use tokio::net::TcpStream;
+    // use tokio::net::TcpStream;
     // this module provides frequently used funtions, constants, types
     pub union RDBValue {
         s: ManuallyDrop<String>,
@@ -34,6 +36,9 @@ pub mod utils {
         
         #[arg(long, default_value_t=0)]
         pub master_repl_offset: u32,
+
+        #[arg(long)]
+        pub replicas: Vec<u16>,
     }
 
     pub const DELIM: u8 = b'\r';
@@ -141,5 +146,15 @@ pub mod utils {
 
         println!("string parsed: {}", result);
         return (i, result); 
+    }
+
+    pub async fn propagate(msg: &String, replica_conns: Vec<TcpStream>) {
+        // for conn in replica_conns {
+        //     // println!("trying to connect to replica with port no.:{}\npropagating {}", socket, msg);
+        //     // replica = TcpStream::connect(format!("127.0.0.1:{}", socket)).await.unwrap();
+        //     conn.write_all(msg.clone().as_bytes()).await.unwrap();
+        //     // dont wait for reply
+        // }
+        unimplemented!()
     }
 }
