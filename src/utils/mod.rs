@@ -76,26 +76,31 @@ pub mod utils {
     }
 
     // parse a single command
-    pub fn parse(ptr: usize, buf: &[u8]) -> Vec<String> {
+    pub fn parse(mut ptr: usize, buf: &[u8]) -> Vec<Vec<String>> {
         // print!("{:?}", buf);
         // for b in buf {
         //     print!("{} ", *b as char);
         // }
         // println!("");
-
-        match buf[ptr] {
-            b'$' => {
-                let (_, s) = parse_string(ptr, buf);
-                vec![s]
-            },
-            b'*' => {
-                let (_, v) = parse_array(ptr, buf);
-                v
-            }
-            _ => {
-                vec![]
+        let mut cmds: Vec<Vec<String>>  = vec![];
+        while ptr < buf.len() {
+            match buf[ptr] {
+                b'$' => {
+                    let (new_ptr, s) = parse_string(ptr, buf);
+                    cmds.push(vec![s]);
+                    ptr = new_ptr;
+                },
+                b'*' => {
+                    let (new_ptr, v) = parse_array(ptr, buf);
+                    cmds.push(v);
+                    ptr = new_ptr; 
+                }
+                _ => {
+                }
             }
         }
+
+        cmds
     }
 
     // you might have to call this recursively

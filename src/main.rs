@@ -1,6 +1,6 @@
 use std::{collections::HashMap, io::ErrorKind, sync::Arc, time::SystemTime, vec};
 use clap::Parser;
-use tokio::{io::{AsyncReadExt, AsyncWriteExt}, net::{TcpListener, TcpStream}, select, sync::{broadcast, Mutex}};
+use tokio::{io::{AsyncReadExt, AsyncWriteExt}, net::{TcpListener, TcpStream}, task::yield_now, select, sync::{broadcast, Mutex}};
 use crate::utils::utils::*;
 use crate::methods::methods::*;
 pub mod methods;
@@ -39,6 +39,7 @@ async fn slave_conn(listener :TcpListener, config_args: Args) {
     let mut input_buf: Vec<u8> = vec![0; 1024];
     let (master_addr, master_port) = config_args.replicaof.split_once(' ').unwrap();
     let mut master_stream = connect_to_master(master_addr, master_port).await;
+    println!("connected to master");
     master_stream.write_all(encode_array(&vec![String::from("PING")]).as_bytes()).await.unwrap();
     // expect PONG
     input_buf.fill(0);
@@ -62,19 +63,33 @@ async fn slave_conn(listener :TcpListener, config_args: Args) {
     master_stream.read_buf(&mut input_buf).await.unwrap();
     // expect FULLRESYNC, ignore respeonse
 
+    // expect rdb file
+    input_buf.fill(0);
+    master_stream.read_buf(&mut input_buf).await.unwrap();
     // let shared_config_args = Arc::new(Mutex::new(config_args));
     let (tx, rx) = broadcast::channel::<Vec<u8>>(1024);
 
+    let db_ref = _db.clone();
+    let args_copy = config_args.clone();
+    let tx1 = tx.clone();
+    let rx1 = tx.subscribe();
+    tokio::spawn(async move {
+        println!("lauching conn for slave-master");
+        conn(master_stream, args_copy, db_ref, tx1, rx1).await;
+    });
+    
     loop {
+        // listen for client connections
         let (stream, _)  = listener.accept().await.unwrap();
-        let config_args_cpy = config_args.clone();
-        // let new_shared_config_args = shared_config_args.clone();
         let db_ref = _db.clone();
+        let args_copy = config_args.clone();
+
+        // slave will probably not communicate among its connections 
         let tx1 = tx.clone();
         let rx1 = tx.subscribe();
-        // this spawns a tokio "asyncrhonous green thread" 
         tokio::spawn(async move {
-            conn(stream, config_args_cpy, db_ref, tx1, rx1).await;
+            // println!("lauching conn for slave-master");
+            conn(stream, args_copy, db_ref, tx1, rx1).await;
         });
     }
 }
@@ -109,32 +124,41 @@ async fn conn(mut _stream: TcpStream,
     // represents an incoming connection
     // need to convert thi storage int Arc<Mutex<>> so it can be shared across different connections,
     // if one connection updates, the other can see them
-   
-    // println!("a"); 
-    // {
-        // let data = config_args.lock().await; 
+    
     if !config_args.dir.starts_with("UNSET") { 
         tokio::fs::create_dir_all(&config_args.dir).await.unwrap();
         println!("{} directory created", &config_args.dir);
     }
 
     let dbfilepath = "".to_owned() + &config_args.dir + "/" + &config_args.dbfilename; 
-    // }
     let mut input_buf: Vec<u8> = vec![0; 1024];
 
-    println!("d");
+    if !config_args.replicaof.starts_with("None") {
+        // sync with master if a replica
+        _stream.write_all(encode_array(&vec![format!("PSYNC"), format!("?"), format!("{}", -1)]).as_bytes()).await.unwrap();
+        input_buf.fill(0);
+        _stream.read_buf(&mut input_buf).await.unwrap();
+        // expect FULLRESYNC, ignore respeonse
+
+        // expect rdb file
+        input_buf.fill(0);
+        _stream.read_buf(&mut input_buf).await.unwrap();
+    }
+
     loop {
         input_buf.fill(0);
         let mut output: Vec<Vec<u8>> = Vec::new();
-
         select! {
-            _ = _stream.readable() => {
-                match _stream.try_read(&mut input_buf) {
+            result = _stream.read_buf(&mut input_buf) => {
+            // _ = _stream.readable() => {
+                // loop {  // loop until all data is read
+                // match _stream.try_read(&mut input_buf) {
+                match result {
                     Ok(bytes_rx) => {
                         if bytes_rx == 0 {
-                            // println!("conn loop exited");
                             break;
                         }
+                        println!("data recvd from stream: {}", input_buf.iter().map(|ch| {*ch as char}).collect::<String>());
                     },
                     Err(ref e) if e.kind() == ErrorKind::WouldBlock => {
                         // this error handling in necessary otherwise it would necessarily block
@@ -144,8 +168,10 @@ async fn conn(mut _stream: TcpStream,
                         println!("{}", e);
                     } 
                 } 
+                // }
             },
             msg = rx.recv() => {
+                // only master sends and only replicas work on the message  
                 if config_args.replicaof.starts_with("None") {
                     continue;
                 }
@@ -169,55 +195,79 @@ async fn conn(mut _stream: TcpStream,
         //     }
         // }
 
+        // println!("{:?}", input_buf);
         if output.is_empty() {  // only parse input_buf if commands recvd from a client
-            let mut cmd_args = parse(0, &input_buf);  // these are basically commands, at one point we will have to parse commands with their parameters, they could be int, boolean etc.   
-            cmd_args[0] = cmd_args[0].to_uppercase();
+            let cmds = parse(0, &input_buf);  // these are basically commands, at one point we will have to parse commands with their parameters, they could be int, boolean etc.   
 
-            output = match cmd_args[0].as_str() {
-                "ECHO" => {
-                    vec![encode_bulk(&cmd_args[1]).as_bytes().to_owned()]
-                },
-                "PING" => {
-                    // assuming if this connection is to a replica 
-                    // in this copy of config_args set replicaof to "Some"
-                    // if some connection call pings then it has to be a replica/slave
-                    if config_args.replicaof.starts_with("None") {
-                        config_args.replicaof = "Some".to_owned();
+            for mut cmd_args in cmds {
+                cmd_args[0] = cmd_args[0].to_uppercase();
+
+                output = match cmd_args[0].as_str() {
+                    "ECHO" => {
+                        vec![encode_bulk(&cmd_args[1]).as_bytes().to_owned()]
+                    },
+                    "PING" => {
+                        // assuming if this connection is to a replica 
+                        // in this copy of config_args set replicaof to "Some"
+                        // if some connection call pings then it has to be a replica/slave
+                        if config_args.replicaof.starts_with("None") {
+                            config_args.replicaof = "Some".to_owned();
+                        }
+                        vec![encode_bulk("PONG").as_bytes().to_owned()]
+                    },
+                    "SET" => {
+                        // (only)send to replicas awaiting
+                        if config_args.replicaof.starts_with("None") {
+                            tx.send(encode_array(&cmd_args).as_bytes().to_vec()).unwrap();
+                        }
+                        let mut response = vec![cmd_set(&cmd_args, storage_ref.clone()).await.as_bytes().to_owned()];
+
+                        // if a replica then dont send any response since write commands only come from the master
+                        if !config_args.replicaof.starts_with("None") {
+                            response.pop();
+                        } 
+
+                        response
+                    },
+                    "GET" => {
+                        loop {
+                            let flag;
+                            {
+                                flag = storage_ref.lock().await.is_empty();
+                            }
+
+                            if flag {
+                                yield_now().await;
+                            } else {
+                                break;
+                            }
+                        }
+                        
+                        vec![cmd_get(&cmd_args[1], &dbfilepath, storage_ref.clone()).await.as_bytes().to_owned()] 
+                    },
+                    "CONFIG" => {
+                        vec![cmd_config(&cmd_args[2], &config_args).await.as_bytes().to_owned()]
+                    },
+                    "SAVE" => {
+                        vec![cmd_save(storage_ref.clone(), &dbfilepath).await.as_bytes().to_owned()]
+                    },
+                    "KEYS" => {
+                        vec![cmd_keys(&dbfilepath, storage_ref.clone()).await.as_bytes().to_owned()]
+                    },
+                    "INFO" => {
+                        vec![cmd_info(&config_args).await.as_bytes().to_owned()]
+                    },
+                    "REPLCONF" => {
+                        vec![encode_simple(&vec!["OK"]).as_bytes().to_owned()]
+                    },
+                    "PSYNC" => {
+                        vec![cmd_psync(&config_args).await.as_bytes().to_owned(), cmd_fullresync(&config_args).await] 
+                    },
+                    _ => {
+                        unimplemented!("Unidentified command");
                     }
-                    vec![encode_bulk("PONG").as_bytes().to_owned()]
-                },
-                "SET" => {
-                    // (only)send to replicas awaiting
-                    if config_args.replicaof.starts_with("None") {
-                        tx.send(encode_array(&cmd_args).as_bytes().to_vec()).unwrap();
-                    }
-                    vec![cmd_set(&cmd_args, storage_ref.clone()).await.as_bytes().to_owned()]
-                },
-                "GET" => {
-                    vec![cmd_get(&cmd_args[1], &dbfilepath, storage_ref.clone()).await.as_bytes().to_owned()] 
-                },
-                "CONFIG" => {
-                    vec![cmd_config(&cmd_args[2], &config_args).await.as_bytes().to_owned()]
-                },
-                "SAVE" => {
-                    vec![cmd_save(storage_ref.clone(), &dbfilepath).await.as_bytes().to_owned()]
-                },
-                "KEYS" => {
-                    vec![cmd_keys(&dbfilepath, storage_ref.clone()).await.as_bytes().to_owned()]
-                },
-                "INFO" => {
-                    vec![cmd_info(&config_args).await.as_bytes().to_owned()]
-                },
-                "REPLCONF" => {
-                    vec![encode_simple(&vec!["OK"]).as_bytes().to_owned()]
-                },
-                "PSYNC" => {
-                    vec![cmd_psync(&config_args).await.as_bytes().to_owned(), cmd_fullresync(&config_args).await] 
-                },
-                _ => {
-                    unimplemented!("Unidentified command");
-                }
-            };
+                };
+            }
         }
 
         for out in output {
