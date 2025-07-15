@@ -50,6 +50,10 @@ pub mod utils {
     pub const _RDB_TIMESTAMP_S_FLAG: u8 = 0xFD;
     pub const _EMPTY_RDB_FILE_: &str= "524544495330303131fa0972656469732d76657205372e322e30fa0a72656469732d62697473c040fa056374696d65c26d08bc65fa08757365642d6d656dc2b0c41000fa08616f662d62617365c000fff06e3bfec0ff5aa2";
 
+    pub fn print_bytes(buf: &Vec<u8>) {
+        println!("{}", buf.iter().map(|ch| {*ch as char}).collect::<String>());
+    }
+
     pub fn encode_array(vals: &Vec<String>) -> String {
         let mut output = format!("*{}\r\n", vals.len());
         let sentinel  = "$";
@@ -82,6 +86,8 @@ pub mod utils {
         //     print!("{} ", *b as char);
         // }
         // println!("");
+        // print!("parsing: ");
+        // print_bytes(&buf.to_vec());
         let mut cmds: Vec<Vec<String>>  = vec![];
         while ptr < buf.len() {
             match buf[ptr] {
@@ -96,6 +102,10 @@ pub mod utils {
                     ptr = new_ptr; 
                 }
                 _ => {
+                    println!("couldnt parse the remaining buffer contents: {:?}", &buf[ptr..]);
+                        // hoping it occurs at the end in some cases where '\r\n' is encountered which wasn't skipped previously
+                    // needs better case handling
+                    break;
                 }
             }
         }
@@ -162,4 +172,5 @@ pub mod utils {
         // }
         unimplemented!()
     }
+
 }

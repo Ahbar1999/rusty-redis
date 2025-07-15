@@ -165,7 +165,7 @@ pub mod methods {
             // i += 1 + buf[i] as usize;   // skip the metadata value  
         }
 
-        println!("parsed metadata");
+        // println!("parsed metadata");
         while buf[i] == _RDB_DATA_SECTION_FLAG_ {
             i += 1;     // DB section flag(current)
             i += 1;     // DB index
@@ -174,7 +174,7 @@ pub mod methods {
             i += 1;     // timed k,v pairs
         }
 
-        println!("parsed db metadata");
+        // println!("parsed db metadata");
         while i < buf.len() {
             let mut new_kv = StorageKV{
                 key: String::from(""), 
@@ -209,13 +209,13 @@ pub mod methods {
                 i += 8;     // skip timestamp(next 8 bytes, if timestamp was stored in msecs)
             }
             i += 1;     // skip value type byte
-            println!("parsed timing info");
+            // println!("parsed timing info");
             // if k is an integer then you need to parse it like above  
             // buf[i] contains size encoded string size
             for &ch in &buf[(i + 1)..(i + 1 + buf[i] as usize)] {
                 new_kv.key.push(char::from(ch));
             }
-            println!("parsed key");
+            // println!("parsed key");
 
             i += 1 + buf[i] as usize;    // skip key bytes
             // currently we return all the keys because we are matching against * pattern 
@@ -228,7 +228,7 @@ pub mod methods {
             }
             i += 1 + buf[i] as usize;    // skip value bytes
 
-            println!("parsed value");
+            // println!("parsed value");
             storage.insert(new_kv.key.clone(), (new_kv.value.clone(), new_kv.exp_ts.clone()));
             println!("record inserted: {:?}", new_kv);
         }
@@ -318,9 +318,9 @@ pub mod methods {
     // i used to pray for times like these 
     pub async fn cmd_get<'a>(key: &String, dbfilepath: &String, storage_ref: Arc<Mutex<HashMap<String, (String, Option<SystemTime>)>>>) -> String {
         // syncing db
-        println!("syncing db"); 
+        println!("syncing db.."); 
         cmd_sync(dbfilepath, storage_ref.clone()).await;
-        println!("searching for {:?}", key);
+        // println!("searching for {:?}", key);
 
         let storage = storage_ref.lock().await; 
         // rewrap for our purposes

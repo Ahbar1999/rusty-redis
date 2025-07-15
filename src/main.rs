@@ -6,10 +6,10 @@ use crate::methods::methods::*;
 pub mod methods;
 pub mod utils;
 
-// todo!("we need a way to process replication connections inside a master connection itself");
-// if replicaof flag is set then start up as slave other as master 
-// todo!("only master should accept incoming connections");
-// todo!("slave should not accept any connections");
+/*
+PROBLEM:
+    We cant seem to process SET commands 
+*/
 
 #[tokio::main]
 async fn main() {
@@ -29,6 +29,8 @@ async fn main() {
     } else {
         slave_conn(listener, config_args).await; 
     } 
+
+    println!("rt exiting");
 }
 
 async fn slave_conn(listener :TcpListener, config_args: Args) {
@@ -42,37 +44,47 @@ async fn slave_conn(listener :TcpListener, config_args: Args) {
     println!("connected to master");
     master_stream.write_all(encode_array(&vec![String::from("PING")]).as_bytes()).await.unwrap();
     // expect PONG
-    input_buf.fill(0);
+    // input_buf.fill(0);
+    input_buf.clear();
     master_stream.read_buf(&mut input_buf).await.unwrap();
+    // print_bytes(&input_buf);
     // expect PONG
 
     // send 2 replconf commands
     master_stream.write_all(encode_array(&vec![format!("REPLCONF"), format!("listening-port"), format!("{}", config_args.port)]).as_bytes()).await.unwrap();
-    input_buf.fill(0);
+    // input_buf.fill(0);
+    input_buf.clear();
     master_stream.read_buf(&mut input_buf).await.unwrap();  // single call works because we arent transmitting large amounts of data
                                                             // in the future we will probably need to read until EOF or we lose data       
     // expect OK
+    // print_bytes(&input_buf);
 
     master_stream.write_all(encode_array(&vec![format!("REPLCONF"), format!("capa"), format!("npsnyc2")]).as_bytes()).await.unwrap();
-    input_buf.fill(0);
+    // input_buf.fill(0);
+    input_buf.clear();
     master_stream.read_buf(&mut input_buf).await.unwrap();
     // expect OK
+    // print_bytes(&input_buf);
 
     master_stream.write_all(encode_array(&vec![format!("PSYNC"), format!("?"), format!("{}", -1)]).as_bytes()).await.unwrap();
-    input_buf.fill(0);
+    // input_buf.fill(0);
+    input_buf.clear();
     master_stream.read_buf(&mut input_buf).await.unwrap();
     // expect FULLRESYNC, ignore respeonse
+    // print_bytes(&input_buf);
 
-    // expect rdb file
-    input_buf.fill(0);
-    master_stream.read_buf(&mut input_buf).await.unwrap();
-    loop {
-        let n =master_stream.read_buf(&mut input_buf).await.unwrap();
-        if n == 0 {
-            break;
-        } 
-    }
+    // expect rdb file; in the next read
+    // input_buf.fill(0);
+    // input_buf.clear();
+    // master_stream.read_buf(&mut input_buf).await.unwrap();
+    // println!("final reception: ");
+    // print_bytes(&input_buf);
+    // expect 3 set commands
+    // input_buf.fill(0);
+    // master_stream.read_buf(&mut input_buf).await.unwrap();
+    // print_bytes(&input_buf);
 
+    // println!("before launching conn");
     let (tx, rx) = broadcast::channel::<Vec<u8>>(1024);
     let db_ref = _db.clone();
     let args_copy = config_args.clone();
@@ -83,7 +95,7 @@ async fn slave_conn(listener :TcpListener, config_args: Args) {
         conn(master_stream, args_copy, db_ref, tx1, rx1).await;
     });
 
-    tokio::time::sleep(Duration::from_millis(500)).await; 
+    // tokio::time::sleep(Duration::from_secs(5)).await;    
     loop {
         // listen for client connections
         let (stream, _)  = listener.accept().await.unwrap();
@@ -101,11 +113,25 @@ async fn slave_conn(listener :TcpListener, config_args: Args) {
 }
 
 async fn master_conn(listener :TcpListener, config_args: Args) {
+    println!("master connection");
     let _db: Arc<Mutex<HashMap<String, (String, Option<SystemTime>)>>>  = Arc::new(Mutex::new(HashMap::new()));
+    
+    if !config_args.dir.starts_with("UNSET") { 
+        tokio::fs::create_dir_all(&config_args.dir).await.unwrap();
+        println!("{} directory created", &config_args.dir);
+        
+        let dbfilepath = "".to_owned() + &config_args.dir + "/" + &config_args.dbfilename;
+        if !dbfilepath.starts_with("UNSET") {
+            cmd_sync(&dbfilepath, _db.clone()).await;
+        }
+    }
+
     let (tx, _) = broadcast::channel::<Vec<u8>>(1024); 
     loop {
+        println!("waiting for new clients");
         // this could be a replication connection or a client connection 
-        let (stream, _)  = listener.accept().await.unwrap();
+        let (stream, sockaddr)  = listener.accept().await.unwrap();
+        println!("new connection to master from {}:{}", &sockaddr.ip(), &sockaddr.port());
         // let new_shared_config_args = shared_config_args.clone();
         let db_ref = _db.clone();
         
@@ -115,11 +141,11 @@ async fn master_conn(listener :TcpListener, config_args: Args) {
         let args_copy = config_args.clone();
         // this spawns a tokio "asyncrhonous green thread" 
         tokio::spawn(async move {
-            // println!("new connection to master from {}:{} with config: ", &sockaddr.ip(), &sockaddr.port());
             // print!("{:?}\n", &new_shared_config_args);
             conn(stream, args_copy, db_ref, tx1, rx1).await;
         });
     }
+
 }
 
 async fn conn(mut _stream: TcpStream, 
@@ -131,36 +157,28 @@ async fn conn(mut _stream: TcpStream,
     // need to convert thi storage int Arc<Mutex<>> so it can be shared across different connections,
     // if one connection updates, the other can see them
     
-    if !config_args.dir.starts_with("UNSET") { 
-        tokio::fs::create_dir_all(&config_args.dir).await.unwrap();
-        println!("{} directory created", &config_args.dir);
-    }
-
-    let dbfilepath = "".to_owned() + &config_args.dir + "/" + &config_args.dbfilename; 
+    let dbfilepath = "".to_owned() + &config_args.dir + "/" + &config_args.dbfilename;
     let mut input_buf: Vec<u8> = vec![0; 1024];
 
     loop {
         input_buf.fill(0);
         let mut output: Vec<Vec<u8>> = Vec::new();
         select! {
-            // result = _stream.read_buf(&mut input_buf) => {
             _ = _stream.readable() => {
-                loop {  // loop until all data is read
-                    match _stream.try_read(&mut input_buf) {
-                    // match result {
-                        Ok(bytes_rx) => {
-                            if bytes_rx == 0 {
-                                break;
-                            }
-                            println!("data recvd from stream: {}", input_buf.iter().map(|ch| {*ch as char}).collect::<String>());
-                        },
-                        Err(ref e) if e.kind() == ErrorKind::WouldBlock => {
-                            // this error handling in necessary otherwise it would necessarily block
-                            continue;
-                        },
-                        Err(e) => {
-                            println!("{}", e);
-                        } 
+                match _stream.try_read(&mut input_buf) {
+                    Ok(bytes_rx) => {
+                        if bytes_rx == 0 {
+                           break;
+                        }
+                        // print_bytes(&input_buf);
+                    },
+                    Err(ref e) if e.kind() == ErrorKind::WouldBlock => {
+                        // this error handling in necessary otherwise it would necessarily block
+                        continue;
+                    },
+                    Err(e) => {
+                        println!("{}", e);
+                        break;
                     } 
                 }
             },
@@ -173,6 +191,8 @@ async fn conn(mut _stream: TcpStream,
             }
         }
         
+        // println!("recvd bytes: "); 
+        // print_bytes(&input_buf); 
         // match _stream.try_read(&mut input_buf) {
         //     Ok(bytes_rx) => {
         //         if bytes_rx == 0 {
@@ -192,6 +212,7 @@ async fn conn(mut _stream: TcpStream,
         // println!("{:?}", input_buf);
         if output.is_empty() {  // only parse input_buf if commands recvd from a client
             let cmds = parse(0, &input_buf);  // these are basically commands, at one point we will have to parse commands with their parameters, they could be int, boolean etc.   
+            // println!("exec: {:?}", cmds);
 
             for mut cmd_args in cmds {
                 cmd_args[0] = cmd_args[0].to_uppercase();
@@ -210,7 +231,6 @@ async fn conn(mut _stream: TcpStream,
                         vec![encode_bulk("PONG").as_bytes().to_owned()]
                     },
                     "SET" => {
-                        println!("exec: {:?}", cmd_args);
                         // (only)send to replicas awaiting
                         if config_args.replicaof.starts_with("None") {
                             tx.send(encode_array(&cmd_args).as_bytes().to_vec()).unwrap();
@@ -225,19 +245,6 @@ async fn conn(mut _stream: TcpStream,
                         response
                     },
                     "GET" => {
-                        loop {
-                            let flag;
-                            {
-                                flag = storage_ref.lock().await.is_empty();
-                            }
-
-                            if flag {
-                                yield_now().await;
-                            } else {
-                                break;
-                            }
-                        }
-                        
                         vec![cmd_get(&cmd_args[1], &dbfilepath, storage_ref.clone()).await.as_bytes().to_owned()] 
                     },
                     "CONFIG" => {
@@ -259,7 +266,8 @@ async fn conn(mut _stream: TcpStream,
                         vec![cmd_psync(&config_args).await.as_bytes().to_owned(), cmd_fullresync(&config_args).await] 
                     },
                     _ => {
-                        unimplemented!("Unidentified command");
+                        // unimplemented!("Unidentified command");
+                        continue;
                     }
                 };
             }
