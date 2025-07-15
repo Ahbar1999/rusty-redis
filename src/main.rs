@@ -66,6 +66,12 @@ async fn slave_conn(listener :TcpListener, config_args: Args) {
     // expect rdb file
     input_buf.fill(0);
     master_stream.read_buf(&mut input_buf).await.unwrap();
+    loop {
+        let n =master_stream.read_buf(&mut input_buf).await.unwrap();
+        if n == 0 {
+            break;
+        } 
+    }
 
     let (tx, rx) = broadcast::channel::<Vec<u8>>(1024);
     let db_ref = _db.clone();
@@ -77,7 +83,7 @@ async fn slave_conn(listener :TcpListener, config_args: Args) {
         conn(master_stream, args_copy, db_ref, tx1, rx1).await;
     });
 
-    tokio::time::sleep(Duration::from_millis(10)).await; 
+    tokio::time::sleep(Duration::from_millis(500)).await; 
     loop {
         // listen for client connections
         let (stream, _)  = listener.accept().await.unwrap();
@@ -137,26 +143,26 @@ async fn conn(mut _stream: TcpStream,
         input_buf.fill(0);
         let mut output: Vec<Vec<u8>> = Vec::new();
         select! {
-            result = _stream.read_buf(&mut input_buf) => {
-            // _ = _stream.readable() => {
-                // loop {  // loop until all data is read
-                // match _stream.try_read(&mut input_buf) {
-                match result {
-                    Ok(bytes_rx) => {
-                        if bytes_rx == 0 {
-                            break;
-                        }
-                        println!("data recvd from stream: {}", input_buf.iter().map(|ch| {*ch as char}).collect::<String>());
-                    },
-                    Err(ref e) if e.kind() == ErrorKind::WouldBlock => {
-                        // this error handling in necessary otherwise it would necessarily block
-                        continue;
-                    },
-                    Err(e) => {
-                        println!("{}", e);
+            // result = _stream.read_buf(&mut input_buf) => {
+            _ = _stream.readable() => {
+                loop {  // loop until all data is read
+                    match _stream.try_read(&mut input_buf) {
+                    // match result {
+                        Ok(bytes_rx) => {
+                            if bytes_rx == 0 {
+                                break;
+                            }
+                            println!("data recvd from stream: {}", input_buf.iter().map(|ch| {*ch as char}).collect::<String>());
+                        },
+                        Err(ref e) if e.kind() == ErrorKind::WouldBlock => {
+                            // this error handling in necessary otherwise it would necessarily block
+                            continue;
+                        },
+                        Err(e) => {
+                            println!("{}", e);
+                        } 
                     } 
-                } 
-                // }
+                }
             },
             msg = rx.recv() => {
                 // only master sends and only replicas work on the message  
