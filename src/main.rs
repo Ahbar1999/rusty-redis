@@ -66,14 +66,14 @@ async fn slave_conn(listener :TcpListener, config_args: Args) {
     // expect rdb file
     input_buf.fill(0);
     master_stream.read_buf(&mut input_buf).await.unwrap();
-    // let shared_config_args = Arc::new(Mutex::new(config_args));
-    let (tx, rx) = broadcast::channel::<Vec<u8>>(1024);
 
+    let (tx, rx) = broadcast::channel::<Vec<u8>>(1024);
     let db_ref = _db.clone();
     let args_copy = config_args.clone();
     let tx1 = tx.clone();
     let rx1 = tx.subscribe();
     tokio::spawn(async move {
+        println!("lauching conn for slave-master");
         conn(master_stream, args_copy, db_ref, tx1, rx1).await;
     });
     
@@ -87,6 +87,7 @@ async fn slave_conn(listener :TcpListener, config_args: Args) {
         let tx1 = tx.clone();
         let rx1 = tx.subscribe();
         tokio::spawn(async move {
+            // println!("lauching conn for slave-master");
             conn(stream, args_copy, db_ref, tx1, rx1).await;
         });
     }
@@ -130,18 +131,6 @@ async fn conn(mut _stream: TcpStream,
 
     let dbfilepath = "".to_owned() + &config_args.dir + "/" + &config_args.dbfilename; 
     let mut input_buf: Vec<u8> = vec![0; 1024];
-
-    if !config_args.replicaof.starts_with("None") {
-        // sync with master if a replica
-        _stream.write_all(encode_array(&vec![format!("PSYNC"), format!("?"), format!("{}", -1)]).as_bytes()).await.unwrap();
-        input_buf.fill(0);
-        _stream.read_buf(&mut input_buf).await.unwrap();
-        // expect FULLRESYNC, ignore respeonse
-
-        // expect rdb file
-        input_buf.fill(0);
-        _stream.read_buf(&mut input_buf).await.unwrap();
-    }
 
     loop {
         input_buf.fill(0);
