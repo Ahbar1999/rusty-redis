@@ -77,7 +77,7 @@ async fn slave_conn(listener :TcpListener, config_args: Args) {
         conn(master_stream, args_copy, db_ref, tx1, rx1).await;
     });
 
-    tokio::time::sleep(Duration::from_millis(100)).await; 
+    tokio::time::sleep(Duration::from_millis(10)).await; 
     loop {
         // listen for client connections
         let (stream, _)  = listener.accept().await.unwrap();
@@ -204,6 +204,7 @@ async fn conn(mut _stream: TcpStream,
                         vec![encode_bulk("PONG").as_bytes().to_owned()]
                     },
                     "SET" => {
+                        println!("exec: {:?}", cmd_args);
                         // (only)send to replicas awaiting
                         if config_args.replicaof.starts_with("None") {
                             tx.send(encode_array(&cmd_args).as_bytes().to_vec()).unwrap();
