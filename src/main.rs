@@ -74,7 +74,6 @@ async fn slave_conn(listener :TcpListener, config_args: Args) {
     let tx1 = tx.clone();
     let rx1 = tx.subscribe();
     tokio::spawn(async move {
-        println!("lauching conn for slave-master");
         conn(master_stream, args_copy, db_ref, tx1, rx1).await;
     });
     
@@ -88,7 +87,6 @@ async fn slave_conn(listener :TcpListener, config_args: Args) {
         let tx1 = tx.clone();
         let rx1 = tx.subscribe();
         tokio::spawn(async move {
-            // println!("lauching conn for slave-master");
             conn(stream, args_copy, db_ref, tx1, rx1).await;
         });
     }
