@@ -1,4 +1,4 @@
-use std::{collections::HashMap, io::ErrorKind, sync::Arc, time::SystemTime, vec};
+use std::{collections::HashMap, io::ErrorKind, sync::Arc, thread::sleep, time::{Duration, SystemTime}, vec};
 use clap::Parser;
 use tokio::{io::{AsyncReadExt, AsyncWriteExt}, net::{TcpListener, TcpStream}, task::yield_now, select, sync::{broadcast, Mutex}};
 use crate::utils::utils::*;
@@ -76,7 +76,8 @@ async fn slave_conn(listener :TcpListener, config_args: Args) {
         println!("lauching conn for slave-master");
         conn(master_stream, args_copy, db_ref, tx1, rx1).await;
     });
-    
+
+    sleep(Duration::from_millis(10)); 
     loop {
         // listen for client connections
         let (stream, _)  = listener.accept().await.unwrap();
