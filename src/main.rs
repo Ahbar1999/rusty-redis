@@ -77,7 +77,7 @@ async fn slave_conn(listener :TcpListener, config_args: Args) {
         conn(master_stream, args_copy, db_ref, tx1, rx1).await;
     });
 
-    sleep(Duration::from_millis(10)); 
+    sleep(Duration::from_millis(100)); 
     loop {
         // listen for client connections
         let (stream, _)  = listener.accept().await.unwrap();
