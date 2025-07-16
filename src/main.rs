@@ -1,15 +1,10 @@
-use std::{collections::HashMap, io::ErrorKind, sync::Arc, thread::sleep, time::{Duration, SystemTime}, vec};
+use std::{collections::HashMap, io::ErrorKind, sync::Arc, time::SystemTime, vec};
 use clap::Parser;
-use tokio::{io::{AsyncReadExt, AsyncWriteExt}, net::{TcpListener, TcpStream}, task::yield_now, select, sync::{broadcast, Mutex}};
+use tokio::{io::{AsyncReadExt, AsyncWriteExt}, net::{TcpListener, TcpStream}, select, sync::{broadcast, Mutex}};
 use crate::utils::utils::*;
 use crate::methods::methods::*;
 pub mod methods;
 pub mod utils;
-
-/*
-PROBLEM:
-    We cant seem to process SET commands 
-*/
 
 #[tokio::main]
 async fn main() {
@@ -47,7 +42,7 @@ async fn slave_conn(listener :TcpListener, config_args: Args) {
     // input_buf.fill(0);
     input_buf.clear();
     master_stream.read_buf(&mut input_buf).await.unwrap();
-    // print_bytes(&input_buf);
+    // pbas(&input_buf);
     // expect PONG
 
     // send 2 replconf commands
@@ -57,35 +52,24 @@ async fn slave_conn(listener :TcpListener, config_args: Args) {
     master_stream.read_buf(&mut input_buf).await.unwrap();  // single call works because we arent transmitting large amounts of data
                                                             // in the future we will probably need to read until EOF or we lose data       
     // expect OK
-    // print_bytes(&input_buf);
+    // pbas(&input_buf);
 
     master_stream.write_all(encode_array(&vec![format!("REPLCONF"), format!("capa"), format!("npsnyc2")]).as_bytes()).await.unwrap();
     // input_buf.fill(0);
     input_buf.clear();
     master_stream.read_buf(&mut input_buf).await.unwrap();
     // expect OK
-    // print_bytes(&input_buf);
+    // pbas(&input_buf);
 
     master_stream.write_all(encode_array(&vec![format!("PSYNC"), format!("?"), format!("{}", -1)]).as_bytes()).await.unwrap();
     // input_buf.fill(0);
-    input_buf.clear();
-    master_stream.read_buf(&mut input_buf).await.unwrap();
-    // expect FULLRESYNC, ignore respeonse
-    // print_bytes(&input_buf);
-
-    // expect rdb file; in the next read
-    // input_buf.fill(0);
     // input_buf.clear();
+    // dont read from stream here, read it from the thread so cmds dont get lost in case they arrive in same packets 
     // master_stream.read_buf(&mut input_buf).await.unwrap();
-    // println!("final reception: ");
-    // print_bytes(&input_buf);
-    // expect 3 set commands
-    // input_buf.fill(0);
-    // master_stream.read_buf(&mut input_buf).await.unwrap();
-    // print_bytes(&input_buf);
+    // expect FULLRESYNC, ignore respeonse
+    // pbas(&input_buf);
 
-    // println!("before launching conn");
-    let (tx, rx) = broadcast::channel::<Vec<u8>>(1024);
+    let (tx, _) = broadcast::channel::<Vec<u8>>(1024);
     let db_ref = _db.clone();
     let args_copy = config_args.clone();
     let tx1 = tx.clone();
@@ -95,7 +79,6 @@ async fn slave_conn(listener :TcpListener, config_args: Args) {
         conn(master_stream, args_copy, db_ref, tx1, rx1).await;
     });
 
-    // tokio::time::sleep(Duration::from_secs(5)).await;    
     loop {
         // listen for client connections
         let (stream, _)  = listener.accept().await.unwrap();
@@ -138,7 +121,7 @@ async fn master_conn(listener :TcpListener, config_args: Args) {
         // slave will probably not communicate among its connections 
         let tx1 = tx.clone();
         let rx1 = tx.subscribe();
-        let args_copy = config_args.clone();
+        let args_copy = config_args.clone();    // why are we cloning 
         // this spawns a tokio "asyncrhonous green thread" 
         tokio::spawn(async move {
             // print!("{:?}\n", &new_shared_config_args);
@@ -170,7 +153,7 @@ async fn conn(mut _stream: TcpStream,
                         if bytes_rx == 0 {
                            break;
                         }
-                        // print_bytes(&input_buf);
+                        // pbas(&input_buf);
                     },
                     Err(ref e) if e.kind() == ErrorKind::WouldBlock => {
                         // this error handling in necessary otherwise it would necessarily block
@@ -192,7 +175,7 @@ async fn conn(mut _stream: TcpStream,
         }
         
         // println!("recvd bytes: "); 
-        // print_bytes(&input_buf); 
+        // pbas(&input_buf); 
         // match _stream.try_read(&mut input_buf) {
         //     Ok(bytes_rx) => {
         //         if bytes_rx == 0 {
@@ -225,8 +208,8 @@ async fn conn(mut _stream: TcpStream,
                         // assuming if this connection is to a replica 
                         // in this copy of config_args set replicaof to "Some"
                         // if some connection call pings then it has to be a replica/slave
-                        if config_args.replicaof.starts_with("None") {
-                            config_args.replicaof = "Some".to_owned();
+                        if config_args.replicaof.starts_with("None") {  
+                            config_args.replicaof = "Some".to_owned();  // this is a replica connection
                         }
                         vec![encode_bulk("PONG").as_bytes().to_owned()]
                     },
@@ -260,7 +243,14 @@ async fn conn(mut _stream: TcpStream,
                         vec![cmd_info(&config_args).await.as_bytes().to_owned()]
                     },
                     "REPLCONF" => {
-                        vec![encode_simple(&vec!["OK"]).as_bytes().to_owned()]
+                        // if config_args.replicaof.starts_with("None") {
+                        if cmd_args[1] == "GETACK" { // port sharing by replica to master, this assumes that this command is always sent on the correct connection
+                        // so no nee to check wether the connection itself   
+                        
+                            vec![cmd_get_ack(0).as_bytes().to_owned()]
+                        } else {    // master asking for ack
+                            vec![encode_simple(&vec!["OK"]).as_bytes().to_owned()]
+                        }
                     },
                     "PSYNC" => {
                         vec![cmd_psync(&config_args).await.as_bytes().to_owned(), cmd_fullresync(&config_args).await] 

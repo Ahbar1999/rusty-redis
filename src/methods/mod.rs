@@ -353,9 +353,14 @@ pub mod methods {
         }
     }
 
+    pub fn cmd_get_ack(bytes_offset: usize) -> String {
+        encode_array(&vec!["REPLCONF".to_owned(), "ACK".to_owned(), bytes_offset.to_string()])
+    }
+    /*
     async fn cmd_get_key_rdb() -> Option<RDBValue> {
         unimplemented!()
     }
+    */
 }
 
 

@@ -1,13 +1,15 @@
 pub mod utils {
-    use std::{mem::ManuallyDrop, time::SystemTime};
+    use std::time::SystemTime;
     use clap::Parser;
-    use tokio::net::TcpStream;
-    // use tokio::net::TcpStream;
+    
     // this module provides frequently used funtions, constants, types
+
+    /* 
     pub union RDBValue {
         s: ManuallyDrop<String>,
         n: i64, 
     }
+    */
 
     #[derive(Debug, Clone)]
     pub struct StorageKV { 
@@ -50,7 +52,8 @@ pub mod utils {
     pub const _RDB_TIMESTAMP_S_FLAG: u8 = 0xFD;
     pub const _EMPTY_RDB_FILE_: &str= "524544495330303131fa0972656469732d76657205372e322e30fa0a72656469732d62697473c040fa056374696d65c26d08bc65fa08757365642d6d656dc2b0c41000fa08616f662d62617365c000fff06e3bfec0ff5aa2";
 
-    pub fn print_bytes(buf: &Vec<u8>) {
+    // print bytes as string
+    pub fn pbas(buf: &Vec<u8>) {
         println!("{}", buf.iter().map(|ch| {*ch as char}).collect::<String>());
     }
 
@@ -87,7 +90,7 @@ pub mod utils {
         // }
         // println!("");
         // print!("parsing: ");
-        // print_bytes(&buf.to_vec());
+        // pbas(&buf.to_vec());
         let mut cmds: Vec<Vec<String>>  = vec![];
         while ptr < buf.len() {
             match buf[ptr] {
@@ -100,12 +103,29 @@ pub mod utils {
                     let (new_ptr, v) = parse_array(ptr, buf);
                     cmds.push(v);
                     ptr = new_ptr; 
-                }
-                _ => {
-                    println!("couldnt parse the remaining buffer contents: {:?}", &buf[ptr..]);
-                        // hoping it occurs at the end in some cases where '\r\n' is encountered which wasn't skipped previously
+                },
+                b'+' => {   // simple strings
+                    let mut new_ptr = ptr;
+                    // skip the simple string 
+                    while buf[new_ptr] != b'\n' {
+                        new_ptr += 1;
+                    }
+                    ptr = new_ptr + 1;
+                },
+                0x0 => {
+                    // no enocding/data should start from 0 
+                    // reached the end of the buffer
+                    // since we are passing the whole input buffer after the valid bytes the 0s will be read
+                    // hoping it occurs at the end in some cases where '\r\n' is encountered which wasn't skipped previously
                     // needs better case handling
+                    // println!("reached the end of the buffer, if some commands remained, you might wanna check this code");
                     break;
+                },
+                _ => {
+                    // continue;
+                    print!("problem: ");
+                    pbas(&buf[ptr..].to_vec());
+                    unimplemented!("if you are seeing this, you are screwed")
                 }
             }
         }
@@ -157,12 +177,15 @@ pub mod utils {
         }
 
         i += size;
-        i += SKIP_LEN;
+        if buf[i] == b'\r' {  // if clrf exists, in cases like file transmission it doesnt exist
+            i += SKIP_LEN;
+        }
 
         println!("string parsed: {}", result);
         return (i, result); 
     }
 
+    /*
     pub async fn propagate(msg: &String, replica_conns: Vec<TcpStream>) {
         // for conn in replica_conns {
         //     // println!("trying to connect to replica with port no.:{}\npropagating {}", socket, msg);
@@ -172,5 +195,5 @@ pub mod utils {
         // }
         unimplemented!()
     }
-
+    */
 }
