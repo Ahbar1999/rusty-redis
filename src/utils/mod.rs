@@ -48,6 +48,10 @@ pub mod utils {
         pub bytes_rx: usize,
     }
 
+    pub struct GlobConfig {
+        pub repl_count: usize,
+    }
+
     pub const DELIM: u8 = b'\r';
     pub const SKIP_LEN: usize = 2;
     pub const _RDB_METADATA_SECTION_FLAG_: u8 = 0xFA;

@@ -72,14 +72,17 @@ async fn slave_conn(listener :TcpListener, config_args: Args) {
     // expect FULLRESYNC, ignore respeonse
     // pbas(&input_buf);
 
+    let glob_config_ref = Arc::new(Mutex::new(GlobConfig{repl_count: 0}));
+
     let (tx, _) = broadcast::channel::<Vec<u8>>(1024);
     let db_ref = _db.clone();
     let args_copy = config_args.clone();
     let tx1 = tx.clone();
     let rx1 = tx.subscribe();
+    let glob_config_ref_copy = glob_config_ref.clone();
     tokio::spawn(async move {
         println!("lauching conn for slave-master");
-        conn(master_stream, args_copy, db_ref, tx1, rx1).await;
+        conn(master_stream, args_copy, db_ref, tx1, rx1, glob_config_ref_copy).await;
     });
 
     loop {
@@ -87,13 +90,14 @@ async fn slave_conn(listener :TcpListener, config_args: Args) {
         let (stream, _)  = listener.accept().await.unwrap();
         let db_ref = _db.clone();
         let args_copy = config_args.clone();
+        let glob_config_ref_copy = glob_config_ref.clone();
 
         // slave will probably not communicate among its connections 
         let tx1 = tx.clone();
         let rx1 = tx.subscribe();
         tokio::spawn(async move {
             // println!("lauching conn for slave-master");
-            conn(stream, args_copy, db_ref, tx1, rx1).await;
+            conn(stream, args_copy, db_ref, tx1, rx1, glob_config_ref_copy).await;
         });
     }
 }
@@ -101,6 +105,7 @@ async fn slave_conn(listener :TcpListener, config_args: Args) {
 async fn master_conn(listener :TcpListener, config_args: Args) {
     println!("master connection");
     let _db: Arc<Mutex<HashMap<String, (String, Option<SystemTime>)>>>  = Arc::new(Mutex::new(HashMap::new()));
+    let master_config_ref = Arc::new(Mutex::new(GlobConfig{ repl_count: 0 }));
     
     if !config_args.dir.starts_with("UNSET") { 
         tokio::fs::create_dir_all(&config_args.dir).await.unwrap();
@@ -120,6 +125,7 @@ async fn master_conn(listener :TcpListener, config_args: Args) {
         println!("new connection to master from {}:{}", &sockaddr.ip(), &sockaddr.port());
         // let new_shared_config_args = shared_config_args.clone();
         let db_ref = _db.clone();
+        let master_config_ref_copy = master_config_ref.clone();
         
         // slave will probably not communicate among its connections 
         let tx1 = tx.clone();
@@ -128,7 +134,11 @@ async fn master_conn(listener :TcpListener, config_args: Args) {
         // this spawns a tokio "asyncrhonous green thread" 
         tokio::spawn(async move {
             // print!("{:?}\n", &new_shared_config_args);
-            conn(stream, args_copy, db_ref, tx1, rx1).await;
+            conn(stream, 
+                args_copy, 
+                db_ref, 
+                tx1, 
+                rx1, master_config_ref_copy).await;
         });
     }
 
@@ -138,7 +148,8 @@ async fn conn(mut _stream: TcpStream,
     mut config_args: Args, 
     storage_ref: Arc<Mutex<HashMap<String, (String, Option<SystemTime>)>>>,
     tx: broadcast::Sender<Vec<u8>>,
-    mut rx:  broadcast::Receiver<Vec<u8>>) { 
+    mut rx:  broadcast::Receiver<Vec<u8>>,
+    glob_config: Arc<Mutex<GlobConfig>>) { 
     // represents an incoming connection
     // need to convert thi storage int Arc<Mutex<>> so it can be shared across different connections,
     // if one connection updates, the other can see them
@@ -231,8 +242,10 @@ async fn conn(mut _stream: TcpStream,
                         // so no nee to check wether the connection itself   
                             vec![cmd_get_ack(config_args.bytes_rx).as_bytes().to_owned()]
                         } else {
-                            // (cmd_args[1] == "listening-port")
-                            config_args.replica_conn = true;
+                            if cmd_args[1] == "listening-port" {
+                                config_args.replica_conn = true;
+                                glob_config.lock().await.repl_count += 1;
+                            }
                             vec![encode_simple(&vec!["OK"]).as_bytes().to_owned()]
                         }
                     },
@@ -240,7 +253,12 @@ async fn conn(mut _stream: TcpStream,
                         vec![cmd_psync(&config_args).await.as_bytes().to_owned(), cmd_fullresync(&config_args).await] 
                     },
                     "WAIT" => {
-                        vec![encode_int(0).as_bytes().to_owned()]
+                        let replica_count;
+                        {
+                            replica_count = glob_config.lock().await.repl_count;
+                        }
+
+                        vec![encode_int(replica_count).as_bytes().to_owned()]
                     }
                     _ => {
                         // unimplemented!("Unidentified command");
