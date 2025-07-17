@@ -6,6 +6,9 @@ use crate::methods::methods::*;
 pub mod methods;
 pub mod utils;
 
+// EXTRA things to do 
+//  1-> find out why using read_buf doesnt work in the conn fn 
+
 #[tokio::main]
 async fn main() {
     // parse command line arguments
@@ -147,6 +150,7 @@ async fn conn(mut _stream: TcpStream,
         input_buf.fill(0);
         let mut output: Vec<Vec<u8>> = Vec::new();
         select! {
+            // using read_buf doesnt work here, find why
             _ = _stream.readable() => {
                 match _stream.try_read(&mut input_buf) {
                     Ok(bytes_rx) => {
@@ -166,7 +170,7 @@ async fn conn(mut _stream: TcpStream,
                 }
             },
             msg = rx.recv() => {
-                if !config_args.replica_conn {  // if this is not a replica connection then ignore
+                if !config_args.replica_conn {  // if this is not a replica connection then ignore replicated command
                     continue;
                 }
                 output = vec![msg.unwrap()];
@@ -235,6 +239,9 @@ async fn conn(mut _stream: TcpStream,
                     "PSYNC" => {
                         vec![cmd_psync(&config_args).await.as_bytes().to_owned(), cmd_fullresync(&config_args).await] 
                     },
+                    "WAIT" => {
+                        vec![encode_int(0).as_bytes().to_owned()]
+                    }
                     _ => {
                         // unimplemented!("Unidentified command");
                         continue;

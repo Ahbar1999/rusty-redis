@@ -87,6 +87,10 @@ pub mod utils {
         format!("${}\r\n{}\r\n", data.len(), data)
     }
 
+    pub fn encode_int(n: usize) -> String {
+        format!(":{}\r\n", n)
+    }
+
     // parse a single command
     pub fn parse(mut ptr: usize, buf: &[u8]) -> Vec<(usize, Vec<String>)> {
         // print!("{:?}", buf);
