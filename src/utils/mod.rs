@@ -33,14 +33,19 @@ pub mod utils {
         #[arg(long, default_value_t=String::from("None"))]
         pub replicaof: String,
 
+        #[arg(long, default_value_t=false)]
+        pub replica_conn: bool,
+        // #[arg(long, default_value_t=false)]
+        // pub is_master: bool,
+
         #[arg(long, default_value_t=String::from("None"))]
         pub master_replid: String,
         
         #[arg(long, default_value_t=0)]
         pub master_repl_offset: u32,
 
-        #[arg(long)]
-        pub replicas: Vec<u16>,
+        #[arg(long, default_value_t=0)]
+        pub bytes_rx: usize,
     }
 
     pub const DELIM: u8 = b'\r';
@@ -83,7 +88,7 @@ pub mod utils {
     }
 
     // parse a single command
-    pub fn parse(mut ptr: usize, buf: &[u8]) -> Vec<Vec<String>> {
+    pub fn parse(mut ptr: usize, buf: &[u8]) -> Vec<(usize, Vec<String>)> {
         // print!("{:?}", buf);
         // for b in buf {
         //     print!("{} ", *b as char);
@@ -91,22 +96,25 @@ pub mod utils {
         // println!("");
         // print!("parsing: ");
         // pbas(&buf.to_vec());
-        let mut cmds: Vec<Vec<String>>  = vec![];
+        let mut cmds: Vec<(usize, Vec<String>)>  = vec![];
         while ptr < buf.len() {
+            // let mut bytes_parsed = 0;   // represents bytes of (valid) commands 
             match buf[ptr] {
                 b'$' => {
                     let (new_ptr, s) = parse_string(ptr, buf);
-                    cmds.push(vec![s]);
+                    // bytes_parsed += new_ptr - ptr;
+                    cmds.push((new_ptr -ptr, vec![s]));
                     ptr = new_ptr;
                 },
                 b'*' => {
                     let (new_ptr, v) = parse_array(ptr, buf);
-                    cmds.push(v);
+                    // bytes_parsed += new_ptr - ptr;
+                    cmds.push((new_ptr -ptr, v));
                     ptr = new_ptr; 
                 },
                 b'+' => {   // simple strings
+                    // just skip them for now 
                     let mut new_ptr = ptr;
-                    // skip the simple string 
                     while buf[new_ptr] != b'\n' {
                         new_ptr += 1;
                     }

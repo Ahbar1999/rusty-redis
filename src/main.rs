@@ -166,38 +166,21 @@ async fn conn(mut _stream: TcpStream,
                 }
             },
             msg = rx.recv() => {
-                // only master sends and only replicas work on the message  
-                if config_args.replicaof.starts_with("None") {
+                if !config_args.replica_conn {  // if this is not a replica connection then ignore
                     continue;
                 }
                 output = vec![msg.unwrap()];
             }
         }
         
-        // println!("recvd bytes: "); 
-        // pbas(&input_buf); 
-        // match _stream.try_read(&mut input_buf) {
-        //     Ok(bytes_rx) => {
-        //         if bytes_rx == 0 {
-        //             // println!("conn loop exited");
-        //             break;
-        //         }
-        //     },
-        //     Err(ref e) if e.kind() == ErrorKind::WouldBlock => {
-        //         // this error handling in necessary otherwise it would necessarily block
-        //         continue;
-        //     },
-        //     Err(e) => {
-        //         println!("{}", e);
-        //     }
-        // }
-
         // println!("{:?}", input_buf);
         if output.is_empty() {  // only parse input_buf if commands recvd from a client
+            // bytes_rx represents the number of bytes of commands that came after handshake sequence 
             let cmds = parse(0, &input_buf);  // these are basically commands, at one point we will have to parse commands with their parameters, they could be int, boolean etc.   
             // println!("exec: {:?}", cmds);
 
-            for mut cmd_args in cmds {
+            for (bytes_rx, mut cmd_args) in cmds {
+                // println!("cmd: {} bytes: {}", cmd_args[0], bytes_rx);
                 cmd_args[0] = cmd_args[0].to_uppercase();
 
                 output = match cmd_args[0].as_str() {
@@ -205,18 +188,15 @@ async fn conn(mut _stream: TcpStream,
                         vec![encode_bulk(&cmd_args[1]).as_bytes().to_owned()]
                     },
                     "PING" => {
-                        // assuming if this connection is to a replica 
-                        // in this copy of config_args set replicaof to "Some"
-                        // if some connection call pings then it has to be a replica/slave
-                        if config_args.replicaof.starts_with("None") {  
-                            config_args.replicaof = "Some".to_owned();  // this is a replica connection
+                        if config_args.replicaof.starts_with("None") {  // if this server instance is a master, part of handshake   
+                            vec![encode_bulk("PONG").as_bytes().to_owned()] 
+                        } else {    // if its a slave, dont send back any response
+                            vec![]
                         }
-                        vec![encode_bulk("PONG").as_bytes().to_owned()]
                     },
                     "SET" => {
-                        // (only)send to replicas awaiting
-                        if config_args.replicaof.starts_with("None") {
-                            tx.send(encode_array(&cmd_args).as_bytes().to_vec()).unwrap();
+                        if config_args.replicaof.starts_with("None") {  // if this server is a master
+                            tx.send(encode_array(&cmd_args).as_bytes().to_vec()).unwrap();  // send replication
                         }
                         let mut response = vec![cmd_set(&cmd_args, storage_ref.clone()).await.as_bytes().to_owned()];
 
@@ -243,12 +223,12 @@ async fn conn(mut _stream: TcpStream,
                         vec![cmd_info(&config_args).await.as_bytes().to_owned()]
                     },
                     "REPLCONF" => {
-                        // if config_args.replicaof.starts_with("None") {
                         if cmd_args[1] == "GETACK" { // port sharing by replica to master, this assumes that this command is always sent on the correct connection
                         // so no nee to check wether the connection itself   
-                        
-                            vec![cmd_get_ack(0).as_bytes().to_owned()]
-                        } else {    // master asking for ack
+                            vec![cmd_get_ack(config_args.bytes_rx).as_bytes().to_owned()]
+                        } else {
+                            // (cmd_args[1] == "listening-port")
+                            config_args.replica_conn = true;
                             vec![encode_simple(&vec!["OK"]).as_bytes().to_owned()]
                         }
                     },
@@ -260,6 +240,9 @@ async fn conn(mut _stream: TcpStream,
                         continue;
                     }
                 };
+
+                // add bytes of this command
+                config_args.bytes_rx += bytes_rx;
             }
         }
 
