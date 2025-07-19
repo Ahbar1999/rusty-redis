@@ -40,6 +40,7 @@ pub mod methods {
 
     pub fn encode_simple(vals: &Vec<&str>) -> String {
         let mut result = vec![];
+        
         for &v in vals {
             result.push(v);
         }
@@ -81,7 +82,7 @@ pub mod methods {
         }
     }
 
-    pub async fn cmd_keys(dbfilename: &String, storage_ref: Arc<Mutex<HashMap<String, (String, Option<SystemTime>)>>>) -> String {
+    pub async fn cmd_keys(dbfilename: &String, storage_ref: Arc<Mutex<HashMap<String, (RDBValue, Option<SystemTime>)>>>) -> String {
         let mut matched_keys: Vec<String> = vec![];
 
         cmd_sync(dbfilename, storage_ref.clone()).await;
@@ -102,7 +103,7 @@ pub mod methods {
         encode_array(&matched_keys)
     }
 
-    pub async fn cmd_sync(dbfilepath: &String, storage_ref: Arc<Mutex<HashMap<String, (String, Option<SystemTime>)>>>) {
+    pub async fn cmd_sync(dbfilepath: &String, storage_ref: Arc<Mutex<HashMap<String, (RDBValue, Option<SystemTime>)>>>) {
         // read the rdb file
         // read the keys, match them against some given pattern
         // we could simply search this in the storage map but i wanna do it the right way
@@ -174,7 +175,7 @@ pub mod methods {
         while i < buf.len() {
             let mut new_kv = StorageKV{
                 key: String::from(""), 
-                value: String::from(""), 
+                value: RDBValue { value: String::from(""), value_type: RDBValueType::String }, 
                 exp_ts: None
             }; 
             // key = String::new();
@@ -220,7 +221,7 @@ pub mod methods {
 
             // currently the values are also prefix encoded strings so this works  
             for &ch in &buf[(i + 1)..(i + 1 + buf[i] as usize)] {
-                new_kv.value.push(char::from(ch));
+                new_kv.value.value.push(char::from(ch));
             }
             i += 1 + buf[i] as usize;    // skip value bytes
 
@@ -230,7 +231,9 @@ pub mod methods {
         }
     }
 
-    pub async fn cmd_save(storage_ref: Arc<Mutex<HashMap<String, (String, Option<SystemTime>)>>>, dbfilepath: &String) -> String {
+    pub async fn cmd_save(
+        storage_ref: Arc<Mutex<HashMap<String, (RDBValue, Option<SystemTime>)>>>, 
+        dbfilepath: &String) -> String {
         let storage = storage_ref.lock().await;
         // assumes the directory structure already exists
         println!("creating file {}", &dbfilepath); 
@@ -272,8 +275,8 @@ pub mod methods {
             }
 
             // value size + bytes
-            out_bytes.put_u8(value.len() as u8);
-            for &b in value.as_bytes() {
+            out_bytes.put_u8(value.value.len() as u8);
+            for &b in value.value.as_bytes() {
                 out_bytes.put_u8(b);
             }
         }                // end section
@@ -292,10 +295,10 @@ pub mod methods {
     }
 
     // change this signature to take StorageKV struct
-    pub async fn cmd_set(cmd_args: &Vec<String>, storage_ref: Arc<Mutex<HashMap<String, (String, Option<SystemTime>)>>>) -> String {
+    pub async fn cmd_set(cmd_args: &Vec<String>, storage_ref: Arc<Mutex<HashMap<String, (RDBValue, Option<SystemTime>)>>>) -> String {
         let mut new_kv = StorageKV {
             key: cmd_args[1].clone(),
-            value: cmd_args[2].clone(),
+            value: RDBValue { value: cmd_args[2].clone(), value_type: RDBValueType::String },
             exp_ts: None,
         };
 
@@ -312,7 +315,7 @@ pub mod methods {
 
     // first correct use of lifetimes ???? 
     // i used to pray for times like these 
-    pub async fn cmd_get<'a>(key: &String, dbfilepath: &String, storage_ref: Arc<Mutex<HashMap<String, (String, Option<SystemTime>)>>>) -> String {
+    pub async fn cmd_get<'a>(key: &String, dbfilepath: &String, storage_ref: Arc<Mutex<HashMap<String, (RDBValue, Option<SystemTime>)>>>) -> Option<RDBValue> {
         // syncing db
         println!("syncing db.."); 
         cmd_sync(dbfilepath, storage_ref.clone()).await;
@@ -340,13 +343,13 @@ pub mod methods {
         };
 
         match result {
-            Some(s) => {
-                encode_bulk(s)
+            Some(rdb_val) => {
+                Some(rdb_val.clone())
             },
-            None =>{
-                encode_bulk("")
+            None => {
+                None
             }
-        }
+        } 
     }
 
     pub fn cmd_get_ack(bytes_offset: usize) -> String {
@@ -368,8 +371,8 @@ pub mod methods {
         while SystemTime::now().duration_since(t).unwrap() <= timeout {
              
             let mut acks: usize = 0;
-            for (port, replica_info) in &glob_config.lock().await.replicas {
-                println!("replica: {}, bytes_rx: {}", port, replica_info.bytes_rx);
+            for (_, replica_info) in &glob_config.lock().await.replicas {
+                // println!("replica: {}, bytes_rx: {}", port, replica_info.bytes_rx);
                 if replica_info.bytes_rx >= target_bytes {
                     acks += 1;
                 } 

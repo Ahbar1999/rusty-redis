@@ -42,7 +42,7 @@ async fn main() {
 async fn slave_conn(listener :TcpListener, config_args: Args) {
     println!("is a slave");
 
-    let _db: Arc<Mutex<HashMap<String, (String, Option<SystemTime>)>>>  = Arc::new(Mutex::new(HashMap::new())); 
+    let _db: Arc<Mutex<HashMap<String, (RDBValue, Option<SystemTime>)>>>  = Arc::new(Mutex::new(HashMap::new())); 
     // handshake stage
     let mut input_buf: Vec<u8> = vec![0; 1024];
     let (master_addr, master_port) = config_args.replicaof.split_once(' ').unwrap();
@@ -116,7 +116,7 @@ async fn slave_conn(listener :TcpListener, config_args: Args) {
 
 async fn master_conn(listener :TcpListener, config_args: Args) {
     // println!("master connection");
-    let _db: Arc<Mutex<HashMap<String, (String, Option<SystemTime>)>>>  = Arc::new(Mutex::new(HashMap::new()));
+    let _db: Arc<Mutex<HashMap<String, (RDBValue, Option<SystemTime>)>>>  = Arc::new(Mutex::new(HashMap::new()));
     let master_config_ref = Arc::new(Mutex::new(GlobConfig{ 
         replicas: HashMap::new(),
         // bytes_rx: 0,
@@ -139,9 +139,7 @@ async fn master_conn(listener :TcpListener, config_args: Args) {
         // this could be a replication connection or a client connection 
         let (stream, sockaddr)  = listener.accept().await.unwrap();
         // println!("new connection to master from {}:{}", &sockaddr.ip(), &sockaddr.port());
-        
-        // glob_config 
-        
+       
         // let new_shared_config_args = shared_config_args.clone();
         let db_ref = _db.clone();
         let master_config_ref_copy = master_config_ref.clone();
@@ -165,7 +163,7 @@ async fn master_conn(listener :TcpListener, config_args: Args) {
 
 async fn conn(mut _stream: TcpStream, 
     mut config_args: Args, 
-    storage_ref: Arc<Mutex<HashMap<String, (String, Option<SystemTime>)>>>,
+    storage_ref: Arc<Mutex<HashMap<String, (RDBValue, Option<SystemTime>)>>>,
     tx: broadcast::Sender<Vec<u8>>,
     mut rx:  broadcast::Receiver<Vec<u8>>,
     glob_config: Arc<Mutex<GlobConfig>>) { 
@@ -219,9 +217,6 @@ async fn conn(mut _stream: TcpStream,
             for (bytes_rx, mut cmd_args) in cmds {
                 // println!("cmd: {} bytes: {}", cmd_args[0], bytes_rx);
                 cmd_args[0] = cmd_args[0].to_uppercase();
-                // if config_args.replicaof.starts_with("Some") {
-                //     glob_config.lock().await.replicas.get_mut(&config_args.port).unwrap().bytes_rx += bytes_rx; 
-                // }
 
                 output = match cmd_args[0].as_str() {
                     "ECHO" => {
@@ -242,23 +237,9 @@ async fn conn(mut _stream: TcpStream,
                         config_args.bytes_rx += bytes_rx;
                         
                         if config_args.replicaof.starts_with("None") {  // if this server is a master
-                            // let msg = encode_array(&vec!["REPLCONF".to_owned(), "GETACK".to_owned(), "*".to_owned()]);
-                            // {
-                            //     // we only care about the write command bytes
-                            //     glob_config.lock().await.replica_writes += bytes_rx;
-                            // }
-
-                            // println!("added {:?} bytes to {:?}", &msg, config_args);
-                            // config_args.bytes_rx += msg.as_bytes().len();
                             tx.send(encode_array(&cmd_args).as_bytes().to_vec()).unwrap();  // send replication
-                            // tx.send(msg.as_bytes().to_vec()).unwrap();
-                            // {
-                            //     // add to total bytes received by the master 
-                            //     glob_config.lock().await.replica_writes += msg.as_bytes().len();
-                            // }
                         }
-                        //  else {
-                        // } 
+                        
                         let mut response = vec![cmd_set(&cmd_args, storage_ref.clone()).await.as_bytes().to_owned()];
 
                         // if a replica then dont send any response since write commands only come from the master
@@ -269,7 +250,15 @@ async fn conn(mut _stream: TcpStream,
                         response
                     },
                     "GET" => {
-                        vec![cmd_get(&cmd_args[1], &dbfilepath, storage_ref.clone()).await.as_bytes().to_owned()] 
+                        let result = cmd_get(&cmd_args[1], &dbfilepath, storage_ref.clone()).await;
+                        match result {
+                            Some(rdb_value) => {
+                                vec![encode_bulk(rdb_value.value.as_str()).as_bytes().to_owned()] 
+                            },
+                            None => {
+                                vec![encode_bulk("").as_bytes().to_owned()] 
+                            }
+                        }
                     },
                     "CONFIG" => {
                         vec![cmd_config(&cmd_args[2], &config_args).await.as_bytes().to_owned()]
@@ -323,14 +312,7 @@ async fn conn(mut _stream: TcpStream,
                             target_bytes = config_args.bytes_rx;    // bytes received by master
                         }
                         println!("bytes to match {}", target_bytes);
-                        // if cmd_args.len() == 1 {
-                            // let replica_count;
-                            // {
-                            //     replica_count = glob_config.lock().await.replicas.len();
-                            // }
-
-                            // vec![encode_int(replica_count).as_bytes().to_owned()]
-                        // } else {
+                        
                         let msg = encode_array(&vec!["REPLCONF".to_owned(), "GETACK".to_owned(), "*".to_owned()]);
                         tx.send(msg.as_bytes().to_vec()).unwrap();
 
@@ -338,14 +320,20 @@ async fn conn(mut _stream: TcpStream,
                             // println!("added {:?} bytes to {:?}", &msg, config_args);
                             config_args.bytes_rx += msg.as_bytes().len();
                         }
-                        // {
-                        //     // we only care about the write command bytes
-                        //     glob_config.lock().await.replica_writes += bytes_rx;
-                        // }
 
                         vec![cmd_wait(cmd_args[1].parse().unwrap(), cmd_args[2].parse().unwrap(), glob_config.clone(), target_bytes).await.as_bytes().to_owned()]
-                        // }
-                    }
+                    },
+                    "TYPE" => {
+                        let result = cmd_get(&cmd_args[1], &dbfilepath, storage_ref.clone()).await;
+                        match result {
+                            Some(rdb_value) => {
+                                vec![encode_simple(&vec![rdb_value.value_type.repr().as_str()]).as_bytes().to_owned()] 
+                            },
+                            None => {
+                                vec![encode_simple(&vec!["none"]).as_bytes().to_owned()]
+                            }
+                        }
+                    },
                     _ => {
                         // unimplemented!("Unidentified command");
                         continue;
@@ -358,6 +346,7 @@ async fn conn(mut _stream: TcpStream,
                 // if !config_args.replicaof.starts_with("None") || !config_args.replica_conn {
                 //     config_args.bytes_rx += bytes_rx;
                 // }
+                // bytes are adde
             }
         }
 

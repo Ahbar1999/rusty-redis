@@ -12,9 +12,34 @@ pub mod utils {
     */
 
     #[derive(Debug, Clone)]
+    pub enum RDBValueType {
+        String,
+        Stream,
+    }
+
+    impl RDBValueType {
+        pub fn repr(&self) -> String {
+            match self {
+                Self::String => {
+                    "string".to_owned()
+                },
+                Self::Stream => {
+                    "stream".to_owned() 
+                }
+            }
+       } 
+    }
+
+    #[derive(Debug, Clone)]
+    pub struct RDBValue {
+        pub value: String,
+        pub value_type: RDBValueType
+    }
+
+    #[derive(Debug, Clone)]
     pub struct StorageKV { 
         pub key     :String,
-        pub value   :String, 
+        pub value   :RDBValue, 
         pub exp_ts  :Option<SystemTime>,
     }
 
