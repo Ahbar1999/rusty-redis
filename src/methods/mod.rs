@@ -6,6 +6,7 @@ pub mod methods {
     use std::{collections::HashMap, ops::BitAnd, time::{Duration, SystemTime, UNIX_EPOCH}, vec};
     use bytes::BufMut;
     use tokio::net::TcpStream;
+    use tokio::time::interval;
     use tokio::{fs::File, io::{AsyncReadExt, AsyncWriteExt}, sync::Mutex};
     use crc64::crc64;
     use crate::utils::utils::*;
@@ -130,13 +131,8 @@ pub mod methods {
         }
 
         // print the hex dump of the file
-        println!("hex dump of rdb file");
-        println!("{}", buf.iter().map(|b| format!("{:02X} ", b)).collect::<String>());
-
-        // let mut key: String;
-        // let mut value: String;
-        // let mut ts: Option<SystemTime> = None;
-
+        // println!("hex dump of rdb file");
+        // println!("{}", buf.iter().map(|b| format!("{:02X} ", b)).collect::<String>());
         let mut i = 9; // skip header bytes
         let mut mask;
 
@@ -355,6 +351,41 @@ pub mod methods {
 
     pub fn cmd_get_ack(bytes_offset: usize) -> String {
         encode_array(&vec!["REPLCONF".to_owned(), "ACK".to_owned(), bytes_offset.to_string()])
+    }
+
+    pub async fn cmd_wait(max_ack: usize, 
+            max_wait: usize, 
+            glob_config: Arc<Mutex<GlobConfig>>,
+            target_bytes: usize) -> String {
+        let t = SystemTime::now(); 
+        // let max_ack: usize = cmd_args[1].parse().unwrap();  // maximum clients needed to ack 
+        let timeout  = Duration::from_millis(max_wait as u64);
+
+        let mut res = 0;
+        // use REPLCONF GETACK to get information about bytes processed from replicas
+        let mut ticker = interval(Duration::from_millis((max_wait / 10) as u64));
+
+        while SystemTime::now().duration_since(t).unwrap() <= timeout {
+             
+            let mut acks: usize = 0;
+            for (port, replica_info) in &glob_config.lock().await.replicas {
+                println!("replica: {}, bytes_rx: {}", port, replica_info.bytes_rx);
+                if replica_info.bytes_rx >= target_bytes {
+                    acks += 1;
+                } 
+            }
+
+            if acks >= max_ack {
+                res= acks;
+                break;
+            }
+
+            res = acks;
+
+            ticker.tick().await;
+        }
+
+        encode_int(res)
     }
 
     /*

@@ -1,7 +1,7 @@
 pub mod utils {
-    use std::time::SystemTime;
+    use std::{collections::HashMap, time::SystemTime};
     use clap::Parser;
-    
+   
     // this module provides frequently used funtions, constants, types
 
     /* 
@@ -27,29 +27,48 @@ pub mod utils {
         #[arg(long, default_value_t=String::from("UNSET"))]
         pub dbfilename: String,
 
+        // this is the port number that's being used by the instance of the program to listen to connections on 
         #[arg(long, default_value_t=6379)]
         pub port: u16,
 
+        // the port that this connection is curretnly connected to
+        #[arg(long, default_value_t=0)]
+        pub other_port: u16,
+
+        // if this flag was passed then it represents the master of which this intance is a replica of 
         #[arg(long, default_value_t=String::from("None"))]
         pub replicaof: String,
 
+        // represents if this connection is to a replica or not(it could be to a client as well)
         #[arg(long, default_value_t=false)]
         pub replica_conn: bool,
         // #[arg(long, default_value_t=false)]
         // pub is_master: bool,
-
+        
         #[arg(long, default_value_t=String::from("None"))]
         pub master_replid: String,
         
         #[arg(long, default_value_t=0)]
         pub master_repl_offset: u32,
 
+        // number of bytes processed by this instance
         #[arg(long, default_value_t=0)]
         pub bytes_rx: usize,
+
+        // number of write command  bytes processed by this instance 
+        // #[arg(long, default_value_t=0)]
+        // pub write_bytes_rx: usize
+    }
+
+    pub struct ReplicaInfo { // for master to gather information about the connected clients
+        pub bytes_rx: usize,    // number of bytes processed by this client   
     }
 
     pub struct GlobConfig {
-        pub repl_count: usize,
+        // pub repl_count: usize,
+        pub replicas: HashMap::<u16, ReplicaInfo>,
+        // pub bytes_rx: usize,
+        // pub replica_writes: usize, 
     }
 
     pub const DELIM: u8 = b'\r';
@@ -197,7 +216,7 @@ pub mod utils {
             i += SKIP_LEN;
         }
 
-        println!("string parsed: {}", result);
+        // println!("string parsed: {}", result);
         return (i, result); 
     }
 
