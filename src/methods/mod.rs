@@ -391,6 +391,40 @@ pub mod methods {
         encode_int(res)
     }
 
+    pub async fn cmd_xadd(
+        cmd_args: &Vec<String>, 
+        storage_ref: Arc<Mutex<HashMap<String, (RDBValue, Option<SystemTime>)>>>) -> String {
+        let new_kv = StorageKV {
+            key: cmd_args[1].clone(),
+            value: RDBValue { value: encode_array(&cmd_args[2..].to_vec()), value_type: RDBValueType::Stream },
+            exp_ts: None,
+        };
+
+        // if cmd_args.len() > 3 { // input validation is not being performed
+        //     // SET foo bar px milliseconds
+        //     let n = cmd_args[4].parse().unwrap();
+        //     new_kv.exp_ts = SystemTime::now().checked_add(Duration::from_millis(n));
+        // }
+        println!("inserting into stream : {:?}", new_kv);
+        let mut db_data= storage_ref.lock().await;
+
+        match db_data.get_mut(&new_kv.key) {
+            Some(value) => {
+                value.0.value = array_append(value.0.value.as_str(), new_kv.value.value.as_str()); 
+            },
+            None => {
+                db_data.insert(
+                    new_kv.key, 
+                    (RDBValue {
+                        value_type: RDBValueType::Stream,
+                        value: encode_array(
+                            &vec![new_kv.value.value])}, None));
+            }
+        }
+
+        cmd_args[2].clone()
+    }
+
     /*
     async fn cmd_get_key_rdb() -> Option<RDBValue> {
         unimplemented!()

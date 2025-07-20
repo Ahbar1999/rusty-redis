@@ -117,6 +117,8 @@ async fn slave_conn(listener :TcpListener, config_args: Args) {
 async fn master_conn(listener :TcpListener, config_args: Args) {
     // println!("master connection");
     let _db: Arc<Mutex<HashMap<String, (RDBValue, Option<SystemTime>)>>>  = Arc::new(Mutex::new(HashMap::new()));
+
+
     let master_config_ref = Arc::new(Mutex::new(GlobConfig{ 
         replicas: HashMap::new(),
         // bytes_rx: 0,
@@ -333,6 +335,9 @@ async fn conn(mut _stream: TcpStream,
                                 vec![encode_simple(&vec!["none"]).as_bytes().to_owned()]
                             }
                         }
+                    },
+                    "XADD" => {
+                        vec![encode_bulk(cmd_xadd(&cmd_args, storage_ref.clone()).await.as_str()).as_bytes().to_owned()]
                     },
                     _ => {
                         // unimplemented!("Unidentified command");

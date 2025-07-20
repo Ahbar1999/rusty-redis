@@ -4,13 +4,6 @@ pub mod utils {
    
     // this module provides frequently used funtions, constants, types
 
-    /* 
-    pub union RDBValue {
-        s: ManuallyDrop<String>,
-        n: i64, 
-    }
-    */
-
     #[derive(Debug, Clone)]
     pub enum RDBValueType {
         String,
@@ -18,6 +11,7 @@ pub mod utils {
     }
 
     impl RDBValueType {
+        // return string representation or name of a variant of RDBValueType enum 
         pub fn repr(&self) -> String {
             match self {
                 Self::String => {
@@ -28,6 +22,14 @@ pub mod utils {
                 }
             }
        } 
+    }
+
+
+    #[derive(Debug, Clone)]
+    pub struct StreamEntry {
+        pub id: String,
+        pub key: u16,
+        pub value: u16,
     }
 
     #[derive(Debug, Clone)]
@@ -245,15 +247,13 @@ pub mod utils {
         return (i, result); 
     }
 
-    /*
-    pub async fn propagate(msg: &String, replica_conns: Vec<TcpStream>) {
-        // for conn in replica_conns {
-        //     // println!("trying to connect to replica with port no.:{}\npropagating {}", socket, msg);
-        //     // replica = TcpStream::connect(format!("127.0.0.1:{}", socket)).await.unwrap();
-        //     conn.write_all(msg.clone().as_bytes()).await.unwrap();
-        //     // dont wait for reply
-        // }
-        unimplemented!()
-    }
-    */
+    pub fn array_append(array: &str, new_val: &str) -> String {
+        let mut new_array = String::from(array);
+
+        new_array.push_str(new_val);
+
+        new_array
+    } 
+
+    
 }
