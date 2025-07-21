@@ -255,7 +255,14 @@ async fn conn(mut _stream: TcpStream,
                         let result = cmd_get(&cmd_args[1], &dbfilepath, storage_ref.clone()).await;
                         match result {
                             Some(rdb_value) => {
-                                vec![encode_bulk(rdb_value.value.as_str()).as_bytes().to_owned()] 
+                                match rdb_value {
+                                    RDBValue::String(s) => {
+                                        vec![encode_bulk(s.as_str()).as_bytes().to_owned()] 
+                                    },
+                                    _ => {
+                                        unimplemented!("cmd_get not implemented for keys that store stream data type");
+                                    }
+                                }
                             },
                             None => {
                                 vec![encode_bulk("").as_bytes().to_owned()] 
@@ -329,7 +336,7 @@ async fn conn(mut _stream: TcpStream,
                         let result = cmd_get(&cmd_args[1], &dbfilepath, storage_ref.clone()).await;
                         match result {
                             Some(rdb_value) => {
-                                vec![encode_simple(&vec![rdb_value.value_type.repr().as_str()]).as_bytes().to_owned()] 
+                                vec![encode_simple(&vec![rdb_value.repr().as_str()]).as_bytes().to_owned()] 
                             },
                             None => {
                                 vec![encode_simple(&vec!["none"]).as_bytes().to_owned()]
@@ -337,7 +344,7 @@ async fn conn(mut _stream: TcpStream,
                         }
                     },
                     "XADD" => {
-                        vec![encode_bulk(cmd_xadd(&cmd_args, storage_ref.clone()).await.as_str()).as_bytes().to_owned()]
+                        vec![(cmd_xadd(&cmd_args, storage_ref.clone()).await.as_str()).as_bytes().to_owned()]
                     },
                     _ => {
                         // unimplemented!("Unidentified command");

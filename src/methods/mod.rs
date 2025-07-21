@@ -175,7 +175,8 @@ pub mod methods {
         while i < buf.len() {
             let mut new_kv = StorageKV{
                 key: String::from(""), 
-                value: RDBValue { value: String::from(""), value_type: RDBValueType::String }, 
+                value: RDBValue::String(String::from("")),
+                //  { value: String::from(""), value_type: RDBValueType::String }, 
                 exp_ts: None
             }; 
             // key = String::new();
@@ -219,12 +220,15 @@ pub mod methods {
             // matched_keys.push(key);
             // skip key size byte + key length bytes
 
+            let mut new_value = String::new(); 
             // currently the values are also prefix encoded strings so this works  
             for &ch in &buf[(i + 1)..(i + 1 + buf[i] as usize)] {
-                new_kv.value.value.push(char::from(ch));
+                // new_kv.value.value.push(char::from(ch));
+                new_value.push(char::from(ch));
             }
             i += 1 + buf[i] as usize;    // skip value bytes
 
+            new_kv.value = RDBValue::String(new_value);
             // println!("parsed value");
             storage.insert(new_kv.key.clone(), (new_kv.value.clone(), new_kv.exp_ts.clone()));
             println!("record inserted: {:?}", new_kv);
@@ -275,8 +279,16 @@ pub mod methods {
             }
 
             // value size + bytes
-            out_bytes.put_u8(value.value.len() as u8);
-            for &b in value.value.as_bytes() {
+            let value_data = match value {
+                RDBValue::String(data) => {
+                    data
+                },
+                RDBValue::Stream(_) => {
+                    unimplemented!("RDB file parsing with stream data type not implemented yet.")
+                }
+            };
+            out_bytes.put_u8(value_data.len() as u8);
+            for &b in value_data.as_bytes() {
                 out_bytes.put_u8(b);
             }
         }                // end section
@@ -298,7 +310,8 @@ pub mod methods {
     pub async fn cmd_set(cmd_args: &Vec<String>, storage_ref: Arc<Mutex<HashMap<String, (RDBValue, Option<SystemTime>)>>>) -> String {
         let mut new_kv = StorageKV {
             key: cmd_args[1].clone(),
-            value: RDBValue { value: cmd_args[2].clone(), value_type: RDBValueType::String },
+            value: RDBValue::String(cmd_args[2].clone()),
+            //, value_type: RDBValueType::String },
             exp_ts: None,
         };
 
@@ -396,7 +409,14 @@ pub mod methods {
         storage_ref: Arc<Mutex<HashMap<String, (RDBValue, Option<SystemTime>)>>>) -> String {
         let new_kv = StorageKV {
             key: cmd_args[1].clone(),
-            value: RDBValue { value: encode_array(&cmd_args[2..].to_vec()), value_type: RDBValueType::Stream },
+            value: RDBValue::Stream(vec![StreamEntry{
+                id: {
+                    let id_parts = cmd_args[2].split_once('-').unwrap();
+                    (usize::from_str_radix(id_parts.0, 10).unwrap(), usize::from_str_radix(id_parts.1, 10).unwrap()) 
+                },
+                key: cmd_args[3].clone(),
+                value: cmd_args[4].clone(),
+            }]), 
             exp_ts: None,
         };
 
@@ -405,24 +425,50 @@ pub mod methods {
         //     let n = cmd_args[4].parse().unwrap();
         //     new_kv.exp_ts = SystemTime::now().checked_add(Duration::from_millis(n));
         // }
-        println!("inserting into stream : {:?}", new_kv);
+        println!("inserting into stream: {:?}", new_kv);
+        // id validation
+        match &new_kv.value {
+            RDBValue::Stream(new_value_vec) => {
+                if new_value_vec[0].id == (0, 0) {
+                    return redis_err(_ERROR_STREAM_NULL_ID_);
+                }
+            },
+            _ => {
+                panic!("invalid data type found in cmdxadd");
+            } 
+        }
+
         let mut db_data= storage_ref.lock().await;
 
         match db_data.get_mut(&new_kv.key) {
-            Some(value) => {
-                value.0.value = array_append(value.0.value.as_str(), new_kv.value.value.as_str()); 
+            Some((value, _)) => {
+                match value {
+                    RDBValue::Stream(value_vec) => {
+                        match new_kv.value {
+                            RDBValue::Stream(new_value_vec) => {
+                                if value_vec.iter().next_back().unwrap().id >= new_value_vec[0].id {
+                                    return redis_err(_ERROR_STREAM_GEQ_ID_EXISTS_);
+                                }
+                                value_vec.push(new_value_vec[0].to_owned());
+                            },
+                            _ => {
+                                unimplemented!("inconsistent data types in xadd");
+                            }
+                        }
+                    },
+                    _ => {
+                        unimplemented!("found string data in a stream cmd_xadd");
+                    }
+                }
             },
             None => {
                 db_data.insert(
-                    new_kv.key, 
-                    (RDBValue {
-                        value_type: RDBValueType::Stream,
-                        value: encode_array(
-                            &vec![new_kv.value.value])}, None));
+                    new_kv.key,
+                    (new_kv.value, None));
             }
         }
 
-        cmd_args[2].clone()
+        encode_bulk(&cmd_args[2])
     }
 
     /*
