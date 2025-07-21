@@ -320,7 +320,7 @@ pub mod methods {
             let n = cmd_args[4].parse().unwrap();
             new_kv.exp_ts = SystemTime::now().checked_add(Duration::from_millis(n));
         }
-        println!("insert new record: {:?}", new_kv);
+        // println!("insert new record: {:?}", new_kv);
         storage_ref.lock().await.insert(new_kv.key, (new_kv.value, new_kv.exp_ts));
 
         response_ok()
@@ -434,7 +434,7 @@ pub mod methods {
         //     let n = cmd_args[4].parse().unwrap();
         //     new_kv.exp_ts = SystemTime::now().checked_add(Duration::from_millis(n));
         // }
-        println!("inserting into stream: {:?}", new_kv);
+        // println!("inserting into stream: {:?}", new_kv);
         // id validation
         match &new_kv.value {
             RDBValue::Stream(new_value_vec) => {
@@ -461,7 +461,7 @@ pub mod methods {
                                     return redis_err(_ERROR_STREAM_GEQ_ID_EXISTS_);
                                 }
                                 if new_value_vec[0].id.0 == usize::MAX {
-                                    new_value_vec[0].id.0 = prev_id.0;
+                                    new_value_vec[0].id.0 = prev_id.0 + 1;
                                 }
                                 if new_value_vec[0].id.1 == usize::MAX {
                                     if prev_id.0 == new_value_vec[0].id.0 { // if first part matches with previous element's id 
@@ -488,7 +488,7 @@ pub mod methods {
                 match new_kv.value {
                     RDBValue::Stream(ref mut new_value_vec) => {
                         if new_value_vec[0].id.0 == usize::MAX {
-                            new_value_vec[0].id.0 = 0;
+                            new_value_vec[0].id.0 = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as usize;
                         }
                         if new_value_vec[0].id.1 == usize::MAX {
                             if new_value_vec[0].id.0 > 0 {
