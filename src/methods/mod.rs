@@ -407,12 +407,21 @@ pub mod methods {
     pub async fn cmd_xadd(
         cmd_args: &Vec<String>, 
         storage_ref: Arc<Mutex<HashMap<String, (RDBValue, Option<SystemTime>)>>>) -> String {
-        let new_kv = StorageKV {
+        let mut new_kv = StorageKV {
             key: cmd_args[1].clone(),
             value: RDBValue::Stream(vec![StreamEntry{
                 id: {
-                    let id_parts = cmd_args[2].split_once('-').unwrap();
-                    (usize::from_str_radix(id_parts.0, 10).unwrap(), usize::from_str_radix(id_parts.1, 10).unwrap()) 
+                    // '*' part will be replaced with usize::MAX
+                    if cmd_args[2] == "*" {
+                        (usize::MAX, usize::MAX)
+                    }  else {
+                        let id_parts = cmd_args[2].split_once('-').unwrap();
+                        if id_parts.1 == "*" {
+                            (usize::from_str_radix(id_parts.0, 10).unwrap(), usize::MAX)
+                        } else {
+                            (usize::from_str_radix(id_parts.0, 10).unwrap(), usize::from_str_radix(id_parts.1, 10).unwrap())
+                        }
+                    } 
                 },
                 key: cmd_args[3].clone(),
                 value: cmd_args[4].clone(),
@@ -439,17 +448,31 @@ pub mod methods {
         }
 
         let mut db_data= storage_ref.lock().await;
+        let result;
 
         match db_data.get_mut(&new_kv.key) {
             Some((value, _)) => {
                 match value {
                     RDBValue::Stream(value_vec) => {
                         match new_kv.value {
-                            RDBValue::Stream(new_value_vec) => {
-                                if value_vec.iter().next_back().unwrap().id >= new_value_vec[0].id {
+                            RDBValue::Stream(mut new_value_vec) => {
+                                let prev_id = value_vec.iter().next_back().unwrap().id;
+                                if  prev_id >= new_value_vec[0].id {
                                     return redis_err(_ERROR_STREAM_GEQ_ID_EXISTS_);
                                 }
+                                if new_value_vec[0].id.0 == usize::MAX {
+                                    new_value_vec[0].id.0 = prev_id.0;
+                                }
+                                if new_value_vec[0].id.1 == usize::MAX {
+                                    if prev_id.0 == new_value_vec[0].id.0 { // if first part matches with previous element's id 
+                                        new_value_vec[0].id.1 = prev_id.1 + 1;
+                                    } else {
+                                        new_value_vec[0].id.1 = 0 + (new_value_vec[0].id.0 == 0) as usize;
+                                    }
+                                }
                                 value_vec.push(new_value_vec[0].to_owned());
+
+                                result = format!("{}-{}", new_value_vec[0].id.0, new_value_vec[0].id.1);
                             },
                             _ => {
                                 unimplemented!("inconsistent data types in xadd");
@@ -462,13 +485,35 @@ pub mod methods {
                 }
             },
             None => {
-                db_data.insert(
-                    new_kv.key,
-                    (new_kv.value, None));
+                match new_kv.value {
+                    RDBValue::Stream(ref mut new_value_vec) => {
+                        if new_value_vec[0].id.0 == usize::MAX {
+                            new_value_vec[0].id.0 = 0;
+                        }
+                        if new_value_vec[0].id.1 == usize::MAX {
+                            if new_value_vec[0].id.0 > 0 {
+                                new_value_vec[0].id.1 = 0;
+                            } else {
+                                // if first part is 0 then second part must start from 1
+                                new_value_vec[0].id.1 = 1;
+                            }
+                        }
+                        
+                        result = format!("{}-{}", &new_value_vec[0].id.0, &new_value_vec[0].id.1);
+                        db_data.insert(
+                            new_kv.key,
+                            (new_kv.value, None));
+
+                    },
+                    _ => {
+                        unimplemented!("invalid state int cmd_xadd()");
+                    }
+                };
+                
             }
         }
 
-        encode_bulk(&cmd_args[2])
+        encode_bulk(&result)
     }
 
     /*
