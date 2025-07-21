@@ -1,10 +1,12 @@
 pub mod methods {
     // this module contains all the redist command methods
 
+    use core::panic;
     use std::io::ErrorKind;
     use std::sync::Arc;
     use std::{collections::HashMap, ops::BitAnd, time::{Duration, SystemTime, UNIX_EPOCH}, vec};
     use bytes::BufMut;
+    use hex::encode;
     use tokio::net::TcpStream;
     use tokio::time::interval;
     use tokio::{fs::File, io::{AsyncReadExt, AsyncWriteExt}, sync::Mutex};
@@ -423,8 +425,13 @@ pub mod methods {
                         }
                     } 
                 },
-                key: cmd_args[3].clone(),
-                value: cmd_args[4].clone(),
+                value: {
+                    let mut kv_pairs = vec![];
+                    for i in 3..cmd_args.len() -1 {
+                        kv_pairs.push((cmd_args[i].clone(), cmd_args[i + 1].clone()));
+                    }
+                    kv_pairs
+                },
             }]), 
             exp_ts: None,
         };
@@ -515,6 +522,53 @@ pub mod methods {
 
         encode_bulk(&result)
     }
+
+    pub async fn cmd_xrange(
+        cmd_args: &Vec<String>, 
+        storage_ref: Arc<Mutex<HashMap<String, (RDBValue, Option<SystemTime>)>>>) -> String {
+
+            let key = cmd_args[1].as_str();
+            let mut id_start = (0, 0);
+            if cmd_args[2].find("-").is_none() {
+                id_start.0 = cmd_args[2].as_str().parse().unwrap();
+            }  else {
+                let id_parts = cmd_args[2].split_once('-').unwrap();
+                id_start = (id_parts.0.parse().unwrap(), id_parts.1.parse().unwrap());
+            }
+
+            let mut id_end = (0, usize::MAX); 
+            if cmd_args[3].find("-").is_none() {
+                id_end.0 = cmd_args[3].as_str().parse().unwrap();
+            }  else {
+                let id_parts = cmd_args[3].split_once('-').unwrap();
+                id_end = (id_parts.0.parse().unwrap(), id_parts.1.parse().unwrap());
+            }
+
+            let _db = storage_ref.lock().await;
+
+            let mut result: Vec<String> = vec![];
+            match _db.get(key) {
+                Some((stream_kvs, _)) => {
+                    match stream_kvs {
+                        RDBValue::Stream(stream_data) => {
+                            for entry in stream_data {
+                                if id_start <= entry.id && entry.id <= id_end {
+                                    result.push(entry.serialize());
+                                }  
+                            } 
+                        },
+                        _ => {
+                            panic!("type mismatch in xrange");
+                        }
+                    }
+                },
+                None => {
+
+                }
+            } 
+           
+            encode_array(&result)
+        }
 
     /*
     async fn cmd_get_key_rdb() -> Option<RDBValue> {

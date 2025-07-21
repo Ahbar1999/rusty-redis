@@ -7,6 +7,8 @@ pub mod utils {
     #[derive(Debug, Clone)]
     pub enum RDBValue {
         String(String),
+        // change the underlying stream data type to something like rbtree keyed on id field of stream entry
+        // this will allow the most important operation on streams(range operation) to be executed effeciently 
         Stream(Vec<StreamEntry>),
     }
 
@@ -28,15 +30,23 @@ pub mod utils {
     #[derive(Debug, Clone)]
     pub struct StreamEntry {
         pub id: (usize, usize),
-        pub key: String,
-        pub value: String,
+        // pub key: String,
+        pub value: Vec<(String, String)>, // each entry consists of a number of k, v pairs 
     }
 
-    // #[derive(Debug, Clone)]
-    // pub struct RDBValue {
-    //     pub value: String,
-    //     pub value_type: RDBValueType
-    // }
+    impl StreamEntry {
+        // serialize a RDBValue::Stream to redist array  
+        pub fn serialize(&self) -> String {
+            let mut res = vec![];
+            // encode each k,v pair of this entry as bulk string
+            for (k, v) in &self.value {
+                res.push(k.clone());
+                res.push(v.clone()); 
+            } 
+            // encode all bulk strings as an array 
+            encode_array(&vec![format!("{}-{}", self.id.0, self.id.1), encode_array(&res)])
+        }
+    }
 
     #[derive(Debug, Clone)]
     pub struct StorageKV { 
@@ -69,8 +79,6 @@ pub mod utils {
         // represents if this connection is to a replica or not(it could be to a client as well)
         #[arg(long, default_value_t=false)]
         pub replica_conn: bool,
-        // #[arg(long, default_value_t=false)]
-        // pub is_master: bool,
         
         #[arg(long, default_value_t=String::from("None"))]
         pub master_replid: String,
@@ -81,10 +89,6 @@ pub mod utils {
         // number of bytes processed by this instance
         #[arg(long, default_value_t=0)]
         pub bytes_rx: usize,
-
-        // number of write command  bytes processed by this instance 
-        // #[arg(long, default_value_t=0)]
-        // pub write_bytes_rx: usize
     }
 
     pub struct ReplicaInfo { // for master to gather information about the connected clients
@@ -116,14 +120,24 @@ pub mod utils {
 
     pub fn encode_array(vals: &Vec<String>) -> String {
         let mut output = format!("*{}\r\n", vals.len());
-        let sentinel  = "$";
+        // let sentinel  = "$";
         for v in vals {
-            output += &sentinel;
-            output += v.len().to_string().as_str();
-            output += "\r\n";
-            output += v;
-            output += "\r\n"; 
+            // v.len() > 1 in the second case because '*' of REPLCONF GETACK * when sent separately might be mistaken for an array encoding  
+            if !v.starts_with("$") && !(v.len() > 1 && v.starts_with("*")) {    // if this string is not already encoded
+                output += &encode_bulk(v);
+                // &sentinel;
+                // output += v.len().to_string().as_str();
+                // output += "\r\n";
+                // output += v;
+                // output += "\r\n";
+            } else {
+                output += v;
+            }
         }
+
+        // if !output.ends_with("\r\n") {
+        //     output += "\r\n";
+        // }
 
         output
     }

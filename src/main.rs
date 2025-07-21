@@ -9,11 +9,6 @@ pub mod utils;
 // EXTRA things to do 
 //  1-> find out why using read_buf doesnt work in the conn fn 
 
-// PROBLEM: 
-// send get ack to all the replica connections, recv bytes processed by them
-// doing it through glob_config struct is not gonna work
-// for each replica connection send GETACKs  
-
 // all write command bytes need to be counted
 // bytes of the following commands need to be counted by the slave: PING, REPLCONF, SET
 
@@ -139,7 +134,7 @@ async fn master_conn(listener :TcpListener, config_args: Args) {
     loop {
         // println!("waiting for new clients or replicas");
         // this could be a replication connection or a client connection 
-        let (stream, sockaddr)  = listener.accept().await.unwrap();
+        let (stream, _)  = listener.accept().await.unwrap();
         // println!("new connection to master from {}:{}", &sockaddr.ip(), &sockaddr.port());
        
         // let new_shared_config_args = shared_config_args.clone();
@@ -344,7 +339,10 @@ async fn conn(mut _stream: TcpStream,
                         }
                     },
                     "XADD" => {
-                        vec![(cmd_xadd(&cmd_args, storage_ref.clone()).await.as_str()).as_bytes().to_owned()]
+                        vec![cmd_xadd(&cmd_args, storage_ref.clone()).await.as_str().as_bytes().to_owned()]
+                    },
+                    "XRANGE" => {
+                        vec![cmd_xrange(&cmd_args, storage_ref.clone()).await.as_str().as_bytes().to_owned()]
                     },
                     _ => {
                         // unimplemented!("Unidentified command");
@@ -358,7 +356,7 @@ async fn conn(mut _stream: TcpStream,
                 // if !config_args.replicaof.starts_with("None") || !config_args.replica_conn {
                 //     config_args.bytes_rx += bytes_rx;
                 // }
-                // bytes are adde
+                // bytes are added
             }
         }
 
