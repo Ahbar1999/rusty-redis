@@ -696,7 +696,7 @@ pub mod methods {
                         *s = (num + 1).to_string();
                         result = s.clone();
                     } else {
-                        unimplemented!("modification for string data not implemented yet");
+                        return redis_err(_ERROR_INCR_NOT_AN_INT_); 
                     }
                 }
             }
