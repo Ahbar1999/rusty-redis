@@ -347,6 +347,9 @@ async fn conn(mut _stream: TcpStream,
                     "XREAD" => {
                         vec![cmd_xread(&cmd_args, storage_ref.clone(), tx.subscribe()).await.as_str().as_bytes().to_owned()]
                     },
+                    "INCR" => {
+                        vec![cmd_incr(&cmd_args, storage_ref.clone()).await.as_bytes().to_owned()] 
+                    },
                     _ => {
                         // unimplemented!("Unidentified command");
                         continue;

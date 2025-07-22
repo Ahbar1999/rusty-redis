@@ -681,6 +681,37 @@ pub mod methods {
         encode_array(&final_result)
     }
 
+    pub async fn cmd_incr(cmd_args: &Vec<String>, storage_ref: Arc<Mutex<HashMap<String, (RDBValue, Option<SystemTime>)>>>) -> String {
+
+        let mut _db =storage_ref.lock().await;
+        let mut result = "0".to_owned();
+        
+        if let Some((rdb_value, ts)) = _db.get_mut(&cmd_args[1]) {
+            match rdb_value {
+                RDBValue::Stream(_) => {
+                    unimplemented!("modifying stream entries not implemented yet!");
+                },
+                RDBValue::String(s) => {
+                    if let Ok(num) = s.parse::<usize>() {
+                        *s = (num + 1).to_string();
+                        result = s.clone();
+                    } else {
+                        unimplemented!("modification for string data not implemented yet");
+                    }
+                }
+            }
+        } else {
+            let new_kv = StorageKV {
+                key: cmd_args[0].clone(),
+                value: RDBValue::String(1.to_string()),
+                exp_ts: None
+            };
+            _db.insert(new_kv.key, (new_kv.value, new_kv.exp_ts));
+        }
+
+        encode_int(result.parse().unwrap())
+    }
+
     /*
     async fn cmd_get_key_rdb() -> Option<RDBValue> {
         unimplemented!()
