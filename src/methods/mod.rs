@@ -537,9 +537,11 @@ pub mod methods {
             }
 
             let mut id_end = (0, usize::MAX); 
-            if cmd_args[3].find("-").is_none() {
+            if cmd_args[3] == "+" {
+                id_end = (usize::MAX, usize::MAX);
+            } else if cmd_args[3].find("-").is_none() {
                 id_end.0 = cmd_args[3].as_str().parse().unwrap();
-            }  else {
+            } else { 
                 let id_parts = cmd_args[3].split_once('-').unwrap();
                 id_end = (id_parts.0.parse().unwrap(), id_parts.1.parse().unwrap());
             }
