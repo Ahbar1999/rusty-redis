@@ -2,6 +2,7 @@ pub mod methods {
     // this module contains all the redist command methods
 
     use core::panic;
+    use std::hash::Hash;
     use std::io::ErrorKind;
     use std::sync::Arc;
     use std::{collections::HashMap, ops::BitAnd, time::{Duration, SystemTime, UNIX_EPOCH}, vec};
@@ -438,6 +439,7 @@ pub mod methods {
             exp_ts: None,
         };
 
+        // stream data doesnt support time yet 
         // if cmd_args.len() > 3 { // input validation is not being performed
         //     // SET foo bar px milliseconds
         //     let n = cmd_args[4].parse().unwrap();
@@ -583,10 +585,25 @@ pub mod methods {
 
         let mut final_result = vec![];      // accumulated reuslts
         let mut result: Vec<String> = vec![];           // result of one stream
-
         let mut start = 2;
+        let mut state: HashMap<String, (usize, usize)> = HashMap::new();
 
         if cmd_args[1] == "block" {
+            // save the state before blocking
+            {
+                let _db = storage_ref.lock().await;
+                for k  in _db.keys() {
+                    match &_db.get(k).unwrap().0 {
+                        RDBValue::Stream(entries) => {
+                            // save stream latest entries
+                            state.insert(k.clone(), entries.iter().next_back().unwrap().id.clone());
+                        },
+                        RDBValue::String(_) => {
+                            continue;
+                        }
+                    }
+                }
+            }
             start += 2;
             let sleep_duration = Duration::from_millis(cmd_args[2].parse().unwrap());
             if sleep_duration.as_millis() > 0 {
@@ -617,7 +634,12 @@ pub mod methods {
             let key = cmd_args[i].as_str();
             
             let mut id_start = (0, 0);
-            if cmd_args[i + mid].find("-").is_none() {
+
+            if cmd_args[i + mid] == "$" {
+                if let Some(id) = state.get(key) {
+                    id_start = *id;
+                }
+            } else if cmd_args[i + mid].find("-").is_none() {
                 id_start.0 = cmd_args[i + mid].as_str().parse().unwrap();
             }  else {
                 let id_parts = cmd_args[i + mid].split_once('-').unwrap();
