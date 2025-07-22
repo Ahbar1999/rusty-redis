@@ -702,11 +702,12 @@ pub mod methods {
             }
         } else {
             let new_kv = StorageKV {
-                key: cmd_args[0].clone(),
+                key: cmd_args[1].clone(),
                 value: RDBValue::String(1.to_string()),
                 exp_ts: None
             };
             _db.insert(new_kv.key, (new_kv.value, new_kv.exp_ts));
+            result = 1.to_string();
         }
 
         encode_int(result.parse().unwrap())
