@@ -7,7 +7,7 @@ pub mod methods {
     use std::{collections::HashMap, ops::BitAnd, time::{Duration, SystemTime, UNIX_EPOCH}, vec};
     use bytes::BufMut;
     use tokio::net::TcpStream;
-    use tokio::time::interval;
+    use tokio::time::{interval, sleep};
     use tokio::{fs::File, io::{AsyncReadExt, AsyncWriteExt}, sync::Mutex};
     use crc64::crc64;
     use crate::utils::utils::*;
@@ -578,8 +578,16 @@ pub mod methods {
 
         let mut final_result = vec![];      // accumulated reuslts
         let mut result: Vec<String> = vec![];           // result of one stream
-        let mid = (cmd_args.len() - 1 - 2 + 1) / 2;
-        for i in 2..(2 + mid) {
+
+        let mut start = 2; 
+        if cmd_args[1] == "block" {
+            start += 2;
+            sleep(Duration::from_millis(cmd_args[2].parse().unwrap())).await;
+        }
+
+        let mid = (cmd_args.len() - 1 - start + 1) / 2;
+
+        for i in start..(start + mid) {
             result.clear();
             let key = cmd_args[i].as_str();
             
@@ -615,10 +623,14 @@ pub mod methods {
                     panic!("key entry not found in cmd_xread()"); 
                 }
             }
-
-            final_result.push(encode_array(&vec![key.to_owned(), encode_array(&result)])); 
+            if !result.is_empty() {
+                final_result.push(encode_array(&vec![key.to_owned(), encode_array(&result)])); 
+            }
         } 
-            
+
+        if final_result.is_empty() {
+            return encode_bulk("");
+        }    
         encode_array(&final_result)
     }
 
