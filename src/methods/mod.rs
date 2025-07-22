@@ -6,7 +6,6 @@ pub mod methods {
     use std::sync::Arc;
     use std::{collections::HashMap, ops::BitAnd, time::{Duration, SystemTime, UNIX_EPOCH}, vec};
     use bytes::BufMut;
-    use hex::encode;
     use tokio::net::TcpStream;
     use tokio::time::interval;
     use tokio::{fs::File, io::{AsyncReadExt, AsyncWriteExt}, sync::Mutex};
@@ -533,7 +532,8 @@ pub mod methods {
                 id_start.0 = cmd_args[2].as_str().parse().unwrap();
             }  else {
                 let id_parts = cmd_args[2].split_once('-').unwrap();
-                id_start = (id_parts.0.parse().unwrap(), id_parts.1.parse().unwrap());
+                // when start id is just "-" id_start just defaults to (0, 0) 
+                id_start = (id_parts.0.parse().unwrap_or_default(), id_parts.1.parse().unwrap_or_default());
             }
 
             let mut id_end = (0, usize::MAX); 

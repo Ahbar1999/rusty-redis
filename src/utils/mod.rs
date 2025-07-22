@@ -91,15 +91,12 @@ pub mod utils {
         pub bytes_rx: usize,
     }
 
-    pub struct ReplicaInfo { // for master to gather information about the connected clients
+    pub struct ReplicaInfo {    // for master to gather information about the connected clients
         pub bytes_rx: usize,    // number of bytes processed by this client   
     }
 
     pub struct GlobConfig {
-        // pub repl_count: usize,
         pub replicas: HashMap::<u16, ReplicaInfo>,
-        // pub bytes_rx: usize,
-        // pub replica_writes: usize, 
     }
 
     pub const DELIM: u8 = b'\r';
@@ -120,16 +117,11 @@ pub mod utils {
 
     pub fn encode_array(vals: &Vec<String>) -> String {
         let mut output = format!("*{}\r\n", vals.len());
-        // let sentinel  = "$";
         for v in vals {
-            // v.len() > 1 in the second case because '*' of REPLCONF GETACK * when sent separately might be mistaken for an array encoding  
+            // v.len() > 1 in the second case because '*' of <REPLCONF GETACK *>..
+            // ..when sent separately might be mistaken for an array encoding  
             if !v.starts_with("$") && !(v.len() > 1 && v.starts_with("*")) {    // if this string is not already encoded
                 output += &encode_bulk(v);
-                // &sentinel;
-                // output += v.len().to_string().as_str();
-                // output += "\r\n";
-                // output += v;
-                // output += "\r\n";
             } else {
                 output += v;
             }
