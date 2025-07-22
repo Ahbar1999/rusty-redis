@@ -7,6 +7,8 @@ pub mod methods {
     use std::{collections::HashMap, ops::BitAnd, time::{Duration, SystemTime, UNIX_EPOCH}, vec};
     use bytes::BufMut;
     use tokio::net::TcpStream;
+    use tokio::select;
+    use tokio::sync::broadcast;
     use tokio::time::{interval, sleep};
     use tokio::{fs::File, io::{AsyncReadExt, AsyncWriteExt}, sync::Mutex};
     use crc64::crc64;
@@ -407,7 +409,8 @@ pub mod methods {
 
     pub async fn cmd_xadd(
         cmd_args: &Vec<String>, 
-        storage_ref: Arc<Mutex<HashMap<String, (RDBValue, Option<SystemTime>)>>>) -> String {
+        storage_ref: Arc<Mutex<HashMap<String, (RDBValue, Option<SystemTime>)>>>,
+        tx: broadcast::Sender<Vec<u8>>) -> String {
         let mut new_kv = StorageKV {
             key: cmd_args[1].clone(),
             value: RDBValue::Stream(vec![StreamEntry{
@@ -519,6 +522,7 @@ pub mod methods {
             }
         }
 
+        tx.send(_EVENT_DB_UPDATED_.as_bytes().to_vec().to_owned()).unwrap();
         encode_bulk(&result)
     }
 
@@ -574,15 +578,36 @@ pub mod methods {
 
     pub async fn cmd_xread(
         cmd_args: &Vec<String>, 
-        storage_ref: Arc<Mutex<HashMap<String, (RDBValue, Option<SystemTime>)>>>) -> String {
+        storage_ref: Arc<Mutex<HashMap<String, (RDBValue, Option<SystemTime>)>>>,
+        mut rx:  broadcast::Receiver<Vec<u8>>) -> String {
 
         let mut final_result = vec![];      // accumulated reuslts
         let mut result: Vec<String> = vec![];           // result of one stream
 
-        let mut start = 2; 
+        let mut start = 2;
+
         if cmd_args[1] == "block" {
             start += 2;
-            sleep(Duration::from_millis(cmd_args[2].parse().unwrap())).await;
+            let sleep_duration = Duration::from_millis(cmd_args[2].parse().unwrap());
+            if sleep_duration.as_millis() > 0 {
+                sleep(sleep_duration).await;
+            } else {
+                // wait for new entry in the db
+                loop {
+                    select! {
+                        data = rx.recv() => {
+                            if let Ok(msg) = data {
+                                if msg == _EVENT_DB_UPDATED_.as_bytes() {
+                                    // move on
+                                    break;
+                                } else {
+                                    // continue to listen
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
 
         let mid = (cmd_args.len() - 1 - start + 1) / 2;

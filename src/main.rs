@@ -200,8 +200,8 @@ async fn conn(mut _stream: TcpStream,
                 }
 
                 output = vec![msg.unwrap()];
-                print!("recvd on rx: ");
-                pbas(&output[0]);
+                // print!("recvd on rx: ");
+                // pbas(&output[0]);
             }
         }
         
@@ -339,13 +339,13 @@ async fn conn(mut _stream: TcpStream,
                         }
                     },
                     "XADD" => {
-                        vec![cmd_xadd(&cmd_args, storage_ref.clone()).await.as_str().as_bytes().to_owned()]
+                        vec![cmd_xadd(&cmd_args, storage_ref.clone(), tx.clone()).await.as_str().as_bytes().to_owned()]
                     },
                     "XRANGE" => {
                         vec![cmd_xrange(&cmd_args, storage_ref.clone()).await.as_str().as_bytes().to_owned()]
                     },
                     "XREAD" => {
-                        vec![cmd_xread(&cmd_args, storage_ref.clone()).await.as_str().as_bytes().to_owned()]
+                        vec![cmd_xread(&cmd_args, storage_ref.clone(), tx.subscribe()).await.as_str().as_bytes().to_owned()]
                     },
                     _ => {
                         // unimplemented!("Unidentified command");
