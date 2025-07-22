@@ -526,35 +526,82 @@ pub mod methods {
         cmd_args: &Vec<String>, 
         storage_ref: Arc<Mutex<HashMap<String, (RDBValue, Option<SystemTime>)>>>) -> String {
 
-            let key = cmd_args[1].as_str();
+        let key = cmd_args[1].as_str();
+        let mut id_start = (0, 0);
+        if cmd_args[2].find("-").is_none() {
+            id_start.0 = cmd_args[2].as_str().parse().unwrap();
+        }  else {
+            let id_parts = cmd_args[2].split_once('-').unwrap();
+            // when start id is just "-" id_start just defaults to (0, 0) 
+            id_start = (id_parts.0.parse().unwrap_or_default(), id_parts.1.parse().unwrap_or_default());
+        }
+
+        let mut id_end = (0, usize::MAX); 
+        if cmd_args[3] == "+" {
+            id_end = (usize::MAX, usize::MAX);
+        } else if cmd_args[3].find("-").is_none() {
+            id_end.0 = cmd_args[3].as_str().parse().unwrap();
+        } else { 
+            let id_parts = cmd_args[3].split_once('-').unwrap();
+            id_end = (id_parts.0.parse().unwrap(), id_parts.1.parse().unwrap());
+        }
+
+        let _db = storage_ref.lock().await;
+
+        let mut result: Vec<String> = vec![];
+        match _db.get(key) {
+            Some((stream_kvs, _)) => {
+                match stream_kvs {
+                    RDBValue::Stream(stream_data) => {
+                        for entry in stream_data {
+                            if id_start <= entry.id && entry.id <= id_end {
+                                result.push(entry.serialize());
+                            }  
+                        } 
+                    },
+                    _ => {
+                        panic!("type mismatch in xrange");
+                    }
+                }
+            },
+            None => {
+                ()
+            }
+        } 
+        
+        encode_array(&result)
+    }
+
+    pub async fn cmd_xread(
+        cmd_args: &Vec<String>, 
+        storage_ref: Arc<Mutex<HashMap<String, (RDBValue, Option<SystemTime>)>>>) -> String {
+
+        let mut final_result = vec![];      // accumulated reuslts
+        let mut result: Vec<String> = vec![];           // result of one stream
+        let mid = (cmd_args.len() - 1 - 2 + 1) / 2;
+        for i in 2..(2 + mid) {
+            result.clear();
+            let key = cmd_args[i].as_str();
+            
             let mut id_start = (0, 0);
-            if cmd_args[2].find("-").is_none() {
-                id_start.0 = cmd_args[2].as_str().parse().unwrap();
+            if cmd_args[i + mid].find("-").is_none() {
+                id_start.0 = cmd_args[i + mid].as_str().parse().unwrap();
             }  else {
-                let id_parts = cmd_args[2].split_once('-').unwrap();
+                let id_parts = cmd_args[i + mid].split_once('-').unwrap();
                 // when start id is just "-" id_start just defaults to (0, 0) 
                 id_start = (id_parts.0.parse().unwrap_or_default(), id_parts.1.parse().unwrap_or_default());
-            }
-
-            let mut id_end = (0, usize::MAX); 
-            if cmd_args[3] == "+" {
-                id_end = (usize::MAX, usize::MAX);
-            } else if cmd_args[3].find("-").is_none() {
-                id_end.0 = cmd_args[3].as_str().parse().unwrap();
-            } else { 
-                let id_parts = cmd_args[3].split_once('-').unwrap();
-                id_end = (id_parts.0.parse().unwrap(), id_parts.1.parse().unwrap());
-            }
-
+            }    
+            let id_end = (usize::MAX, usize::MAX); 
+    
             let _db = storage_ref.lock().await;
-
+    
             let mut result: Vec<String> = vec![];
             match _db.get(key) {
                 Some((stream_kvs, _)) => {
                     match stream_kvs {
                         RDBValue::Stream(stream_data) => {
                             for entry in stream_data {
-                                if id_start <= entry.id && entry.id <= id_end {
+                                if id_start < entry.id && entry.id <= id_end {
                                     result.push(entry.serialize());
                                 }  
                             } 
@@ -565,12 +612,15 @@ pub mod methods {
                     }
                 },
                 None => {
-
+                    panic!("key entry not found in cmd_xread()"); 
                 }
-            } 
-           
-            encode_array(&result)
-        }
+            }
+
+            final_result.push(encode_array(&vec![key.to_owned(), encode_array(&result)])); 
+        } 
+            
+        encode_array(&final_result)
+    }
 
     /*
     async fn cmd_get_key_rdb() -> Option<RDBValue> {

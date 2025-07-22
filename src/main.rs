@@ -221,7 +221,7 @@ async fn conn(mut _stream: TcpStream,
                     },
                     "PING" => {
                         if config_args.replicaof.starts_with("None") {  // if this server instance is a master, part of handshake   
-                            vec![encode_bulk("PONG").as_bytes().to_owned()] 
+                            vec![encode_simple(&vec!["PONG"]).as_bytes().to_owned()] 
                         } else {    // if its a replica, dont send back any response
                             config_args.bytes_rx += bytes_rx;
                             // glob_config.lock().await.replica_writes += bytes_rx;
@@ -343,6 +343,9 @@ async fn conn(mut _stream: TcpStream,
                     },
                     "XRANGE" => {
                         vec![cmd_xrange(&cmd_args, storage_ref.clone()).await.as_str().as_bytes().to_owned()]
+                    },
+                    "XREAD" => {
+                        vec![cmd_xread(&cmd_args, storage_ref.clone()).await.as_str().as_bytes().to_owned()]
                     },
                     _ => {
                         // unimplemented!("Unidentified command");
