@@ -350,6 +350,9 @@ async fn conn(mut _stream: TcpStream,
                     "INCR" => {
                         vec![cmd_incr(&cmd_args, storage_ref.clone()).await.as_bytes().to_owned()] 
                     },
+                    "MULTI" => {
+                        vec![response_ok().as_bytes().to_owned()]
+                    }
                     _ => {
                         // unimplemented!("Unidentified command");
                         continue;

@@ -7,7 +7,7 @@ pub mod utils {
     #[derive(Debug, Clone)]
     pub enum RDBValue {
         String(String),
-        // change the underlying stream data type to something like rbtree keyed on id field of stream entry
+        // change the underlying data type for stream variant to something like rbtree keyed on id field of stream entry
         // this will allow the most important operation on streams(range operation) to be executed effeciently 
         Stream(Vec<StreamEntry>),
     }
@@ -107,11 +107,10 @@ pub mod utils {
     pub const _RDB_TIMESTAMP_MS_FLAG: u8 = 0xFC;
     pub const _RDB_TIMESTAMP_S_FLAG: u8 = 0xFD;
     pub const _EMPTY_RDB_FILE_: &str= "524544495330303131fa0972656469732d76657205372e322e30fa0a72656469732d62697473c040fa056374696d65c26d08bc65fa08757365642d6d656dc2b0c41000fa08616f662d62617365c000fff06e3bfec0ff5aa2";
+    pub const _EVENT_DB_UPDATED_: &str = "DB_UPDATED";
     pub const _ERROR_STREAM_GEQ_ID_EXISTS_: &str = "ERR The ID specified in XADD is equal or smaller than the target stream top item";
     pub const _ERROR_STREAM_NULL_ID_: &str = "ERR The ID specified in XADD must be greater than 0-0";
-    pub const _EVENT_DB_UPDATED_: &str = "DB_UPDATED";
     pub const _ERROR_INCR_NOT_AN_INT_: &str = "ERR value is not an integer or out of range";
-
 
     // print bytes as string
     pub fn pbas(buf: &Vec<u8>) {

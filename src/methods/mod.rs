@@ -2,7 +2,6 @@ pub mod methods {
     // this module contains all the redist command methods
 
     use core::panic;
-    use std::hash::Hash;
     use std::io::ErrorKind;
     use std::sync::Arc;
     use std::{collections::HashMap, ops::BitAnd, time::{Duration, SystemTime, UNIX_EPOCH}, vec};
