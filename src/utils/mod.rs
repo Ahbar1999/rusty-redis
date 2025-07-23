@@ -119,6 +119,7 @@ pub mod utils {
     pub const _ERROR_STREAM_NULL_ID_: &str = "ERR The ID specified in XADD must be greater than 0-0";
     pub const _ERROR_INCR_NOT_AN_INT_: &str = "ERR value is not an integer or out of range";
     pub const _ERROR_EXEC_WITHOUT_MULTI_: &str = "ERR EXEC without MULTI";
+    pub const _ERROR_DISCARD_WITHOUT_MULTI_: &str = "ERR DISCARD without MULTI";
 
     // print bytes as string
     pub fn pbas(buf: &Vec<u8>) {
@@ -132,19 +133,12 @@ pub mod utils {
             if v == "" {
                 continue;
             }
-            // v.len() > 1 in the second case because '*' of <REPLCONF GETACK *>..
-            // ..when sent separately might be mistaken for an array encoding  
-            // if !(v.starts_with("-")  && !v.starts_with(":") && !v.starts_with("+") && !v.starts_with("$") && !(v.len() > 1 && v.starts_with("*")) {    // if this string is not already encoded
             if raw {    // if arguments arent already encoded, encode them as string
                 output += &encode_bulk(v);
             } else {
                 output += v;
             }
         }
-
-        // if !output.ends_with("\r\n") {
-        //     output += "\r\n";
-        // }
 
         output
     }

@@ -6,7 +6,6 @@ pub mod methods {
     use std::sync::Arc;
     use std::{collections::HashMap, ops::BitAnd, time::{Duration, SystemTime, UNIX_EPOCH}, vec};
     use bytes::BufMut;
-    use hex::encode;
     use tokio::net::TcpStream;
     use tokio::select;
     use tokio::sync::broadcast;
@@ -867,6 +866,10 @@ pub mod methods {
                     config_args.queueing = true;
                     vec![response_ok().as_bytes().to_owned()]
                 },
+                "DISCARD" => {
+                    config_args.queueing = false;
+                    vec![response_ok().as_bytes().to_owned()]
+                }
                 // "EXEC" => {
                 //     config_args.queueing = false;
                 //     vec![redis_err(_ERROR_EXEC_WITHOUT_MULTI_).as_bytes().to_owned()]

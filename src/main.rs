@@ -1,4 +1,4 @@
-use std::{collections::HashMap, io::{empty, ErrorKind}, sync::Arc, time::SystemTime, vec};
+use std::{collections::HashMap, io::ErrorKind, sync::Arc, time::SystemTime, vec};
 use clap::Parser;
 use tokio::{io::{AsyncReadExt, AsyncWriteExt}, net::{TcpListener, TcpStream}, select, sync::{broadcast, Mutex}};
 use crate::utils::utils::*;
@@ -215,35 +215,42 @@ async fn conn(mut _stream: TcpStream,
                     config_args.queueing = false;
                     flag = true;
                     continue;
+                } else if cmd.1[0].to_uppercase() == "DISCARD" {
+                    if !config_args.queueing {
+                        output = vec![redis_err(_ERROR_DISCARD_WITHOUT_MULTI_).as_bytes().to_owned()];
+                        continue;
+                    }
+                    config_args.queueing = false;
+                    cmds.clear();
                 }
                 cmds.push(cmd);
-            }  
-            // these are basically commands, at one point we will have to parse commands with their parameters, they could be int, boolean etc.   
+            }  // these are basically commands, at one point we will have to parse commands with their parameters, they could be int, boolean etc.   
+            
             // println!("exec: {:?}", cmds);
-            if config_args.queueing { 
-                _stream.write_all(encode_simple(&vec!["QUEUED"]).as_bytes()).await.unwrap();
-                continue; 
-            }
+            if config_args.queueing {
+                output = vec![encode_simple(&vec!["QUEUED"]).as_bytes().to_owned()];
+            } else {
+                if output.is_empty() {
+                    output = exec(&cmds,
+                        &mut config_args,
+                        storage_ref.clone(),
+                        tx.clone(),
+                        glob_config.clone()).await;
 
-            if output.is_empty() {
-                output = exec(&cmds,
-                    &mut config_args,
-                    storage_ref.clone(),
-                    tx.clone(),
-                    glob_config.clone()).await;
-                if flag {
-                    // if last command was EXEC then encode all the output into an array
-                    output = vec![encode_array(&output.iter().map(|bytes| {
-                        let mut cmd = String::new();
-                        for &byte in bytes {
-                            cmd.push(byte as char);
-                        }
+                    if flag {
+                        // if last command was EXEC then encode all the output into an array
+                        output = vec![encode_array(&output.iter().map(|bytes| {
+                            let mut cmd = String::new();
+                            for &byte in bytes {
+                                cmd.push(byte as char);
+                            }
 
-                        cmd
-                    }).collect(), false).as_bytes().to_vec().to_owned()];
+                            cmd
+                        }).collect(), false).as_bytes().to_vec().to_owned()];
+                    }
                 }
+                cmds.clear();
             }
-            cmds.clear();
         } 
 
         for out in &output {
