@@ -224,7 +224,8 @@ async fn conn(mut _stream: TcpStream,
             // println!("exec: {:?}", cmds);
 
             if config_args.queueing { 
-               continue; 
+                _stream.write_all(encode_simple(&vec!["QUEUED"]).as_bytes()).await.unwrap();
+                continue; 
             }
 
             if output.is_empty() {
