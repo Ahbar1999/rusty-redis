@@ -111,6 +111,7 @@ pub mod utils {
     pub const _ERROR_STREAM_GEQ_ID_EXISTS_: &str = "ERR The ID specified in XADD is equal or smaller than the target stream top item";
     pub const _ERROR_STREAM_NULL_ID_: &str = "ERR The ID specified in XADD must be greater than 0-0";
     pub const _ERROR_INCR_NOT_AN_INT_: &str = "ERR value is not an integer or out of range";
+    pub const _ERROR_EXEC_NONE_PENDING_: &str = "ERR EXEC without MULTI";
 
     // print bytes as string
     pub fn pbas(buf: &Vec<u8>) {

@@ -352,6 +352,9 @@ async fn conn(mut _stream: TcpStream,
                     },
                     "MULTI" => {
                         vec![response_ok().as_bytes().to_owned()]
+                    },
+                    "EXEC" => {
+                        vec![redis_err(_ERROR_EXEC_NONE_PENDING_).as_bytes().to_owned()]
                     }
                     _ => {
                         // unimplemented!("Unidentified command");
