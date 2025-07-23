@@ -6,6 +6,7 @@ pub mod methods {
     use std::sync::Arc;
     use std::{collections::HashMap, ops::BitAnd, time::{Duration, SystemTime, UNIX_EPOCH}, vec};
     use bytes::BufMut;
+    use hex::encode;
     use tokio::net::TcpStream;
     use tokio::select;
     use tokio::sync::broadcast;
@@ -24,6 +25,7 @@ pub mod methods {
         let raw_bytes = hex::decode(contents).unwrap(); 
         let mut res= Vec::<u8>::new(); 
         res.push(b'$');
+        // res.push(raw_bytes.len() as u8);
         for b in raw_bytes.len().to_string().as_bytes() {
             res.push(*b);
         }
@@ -712,6 +714,185 @@ pub mod methods {
         encode_int(result.parse().unwrap())
     }
 
+    pub async fn exec(
+        cmds: &Vec<(usize, Vec<String>)>, 
+        config_args: &mut Args,
+        storage_ref: Arc<Mutex<HashMap<String, (RDBValue, Option<SystemTime>)>>>,
+        tx: broadcast::Sender<Vec<u8>>,
+        glob_config: Arc<Mutex<GlobConfig>>) -> Vec<Vec<u8>> {
+
+        let dbfilepath = "".to_owned() + &config_args.dir + "/" + &config_args.dbfilename;
+        let mut output = vec![];
+
+        // bytes_rx represents the number of bytes of commands that came after handshake sequence 
+        for (bytes_rx, cmd_args) in cmds {
+            let responses = match cmd_args[0].to_uppercase().as_str() {
+                "ECHO" => {
+                    vec![encode_bulk(&cmd_args[1]).as_bytes().to_owned()]
+                },
+                "PING" => {
+                    if config_args.replicaof.starts_with("None") {  // if this server instance is a master, part of handshake   
+                        vec![encode_simple(&vec!["PONG"]).as_bytes().to_owned()] 
+                    } else {    // if its a replica, dont send back any response
+                        config_args.bytes_rx += bytes_rx;
+                        // glob_config.lock().await.replica_writes += bytes_rx;
+                        vec![]
+                    }
+                },
+                "SET" => {
+                    // replica and master both account of these bytes
+                    // println!("added {:?} bytes to {:?}", &cmd_args, config_args);
+                    config_args.bytes_rx += bytes_rx;
+                    
+                    if config_args.replicaof.starts_with("None") {  // if this server is a master
+                        tx.send(encode_array(&cmd_args).as_bytes().to_vec()).unwrap();  // send replication
+                    }
+                    
+                    let mut response = vec![cmd_set(&cmd_args, storage_ref.clone()).await.as_bytes().to_owned()];
+
+                    // if a replica then dont send any response since write commands only come from the master
+                    if !config_args.replicaof.starts_with("None") {
+                        response.pop();
+                    } 
+
+                    response
+                },
+                "GET" => {
+                    let result = cmd_get(&cmd_args[1], &dbfilepath, storage_ref.clone()).await;
+                    match result {
+                        Some(rdb_value) => {
+                            match rdb_value {
+                                RDBValue::String(s) => {
+                                    vec![encode_bulk(s.as_str()).as_bytes().to_owned()] 
+                                },
+                                _ => {
+                                    unimplemented!("cmd_get not implemented for keys that store stream data type");
+                                }
+                            }
+                        },
+                        None => {
+                            vec![encode_bulk("").as_bytes().to_owned()] 
+                        }
+                    }
+                },
+                "CONFIG" => {
+                    vec![cmd_config(&cmd_args[2], &config_args).await.as_bytes().to_owned()]
+                },
+                "SAVE" => {
+                    vec![cmd_save(storage_ref.clone(), &dbfilepath).await.as_bytes().to_owned()]
+                },
+                "KEYS" => {
+                    vec![cmd_keys(&dbfilepath, storage_ref.clone()).await.as_bytes().to_owned()]
+                },
+                "INFO" => {
+                    vec![cmd_info(&config_args).await.as_bytes().to_owned()]
+                },
+                "REPLCONF" => {
+                    if cmd_args[1] == "GETACK"{    // return number of bytes processed by this replica
+                        // config_args.write_bytes_rx += bytes_rx; // replconf is also a write a command  
+                        // println!("added {:?} bytes to {:?}", cmd_args, config_args);
+                        if config_args.bytes_rx > 0 {
+                            config_args.bytes_rx += bytes_rx;
+                        }
+                        vec![cmd_get_ack(config_args.bytes_rx).as_bytes().to_owned()]
+                    } else if cmd_args[1] == "ACK" {
+                        // this message was sent by replica to (this instance) master
+                        // save these bytes for this replica
+                        // you need to get this replica's port that its listening on, it passed that port when it connected 
+                        // save that port in the config_args of this connection
+                        // then key it into the global_args.replicas and increment byte_rx there
+                        
+                        // add to: bytes recvd by the replica sending the ack 
+                        println!("recvd ack from: {}", &config_args.other_port);
+                        glob_config.lock().await.replicas.get_mut(&config_args.other_port).unwrap().bytes_rx += cmd_args[2].parse::<usize>().unwrap(); 
+                        vec![]
+                    } else {
+                        // port sharing by replica to master, this assumes that this command is always sent on the correct connection
+                        if cmd_args[1] == "listening-port" {
+                            config_args.replica_conn = true;
+                            config_args.other_port = cmd_args[2].parse().unwrap();
+                            glob_config.lock().await.replicas.insert(cmd_args[2].parse().unwrap(), ReplicaInfo{bytes_rx: 0});
+                        }
+                        vec![encode_simple(&vec!["OK"]).as_bytes().to_owned()]
+                    }
+                },
+                "PSYNC" => {
+                    println!("pysnc() {:?}", config_args);
+                    vec![cmd_psync(&config_args).await.as_bytes().to_owned(), cmd_fullresync(&config_args).await] 
+                },
+                "WAIT" => {
+                    // save the byte of all the commands processed before this WAIT command
+                    let target_bytes;
+                    {
+                        // target_bytes = glob_config.lock().await.replica_writes;
+                        target_bytes = config_args.bytes_rx;    // bytes received by master
+                    }
+                    println!("bytes to match {}", target_bytes);
+                    
+                    let msg = encode_array(&vec!["REPLCONF".to_owned(), "GETACK".to_owned(), "*".to_owned()]);
+                    tx.send(msg.as_bytes().to_vec()).unwrap();
+
+                    if target_bytes > 0 { // only add getack bytes to master if some writes exist
+                        // println!("added {:?} bytes to {:?}", &msg, config_args);
+                        config_args.bytes_rx += msg.as_bytes().len();
+                    }
+
+                    vec![cmd_wait(cmd_args[1].parse().unwrap(), cmd_args[2].parse().unwrap(), glob_config.clone(), target_bytes).await.as_bytes().to_owned()]
+                },
+                "TYPE" => {
+                    let result = cmd_get(&cmd_args[1], &dbfilepath, storage_ref.clone()).await;
+                    match result {
+                        Some(rdb_value) => {
+                            vec![encode_simple(&vec![rdb_value.repr().as_str()]).as_bytes().to_owned()] 
+                        },
+                        None => {
+                            vec![encode_simple(&vec!["none"]).as_bytes().to_owned()]
+                        }
+                    }
+                },
+                "XADD" => {
+                    vec![cmd_xadd(&cmd_args, storage_ref.clone(), tx.clone()).await.as_str().as_bytes().to_owned()]
+                },
+                "XRANGE" => {
+                    vec![cmd_xrange(&cmd_args, storage_ref.clone()).await.as_str().as_bytes().to_owned()]
+                },
+                "XREAD" => {
+                    vec![cmd_xread(&cmd_args, storage_ref.clone(), tx.subscribe()).await.as_str().as_bytes().to_owned()]
+                },
+                "INCR" => {
+                    vec![cmd_incr(&cmd_args, storage_ref.clone()).await.as_bytes().to_owned()] 
+                },
+                "MULTI" => {
+                    config_args.queueing = true;
+                    vec![response_ok().as_bytes().to_owned()]
+                },
+                // "EXEC" => {
+                //     config_args.queueing = false;
+                //     vec![redis_err(_ERROR_EXEC_WITHOUT_MULTI_).as_bytes().to_owned()]
+                // }
+                _ => {
+                    vec![]
+                    // unimplemented!("Unidentified command");
+                    // continue;
+                }
+            };
+
+            for response in responses {
+                output.push(response);
+            }
+        }
+
+        // config_args should hold bytes of write commands only 
+        // add to processed bytes if either its a replica(receiving commands from master) or a master receiving from replica
+        // process commands received at replica or sent by client(to master)  
+        // if !config_args.replicaof.starts_with("None") || !config_args.replica_conn {
+        //     config_args.bytes_rx += bytes_rx;
+        // }
+        // bytes are added
+
+        return output;
+        
+    }
     /*
     async fn cmd_get_key_rdb() -> Option<RDBValue> {
         unimplemented!()

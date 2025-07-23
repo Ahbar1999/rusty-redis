@@ -83,12 +83,19 @@ pub mod utils {
         #[arg(long, default_value_t=String::from("None"))]
         pub master_replid: String,
         
-        #[arg(long, default_value_t=0)]
+        // number of bytes processed by this instance
+        #[clap(skip)]
         pub master_repl_offset: u32,
 
         // number of bytes processed by this instance
-        #[arg(long, default_value_t=0)]
+        #[clap(skip)]
         pub bytes_rx: usize,
+
+        #[clap(skip)]
+        pub queueing: bool,
+
+        #[clap(skip)]
+        pub pending_cmds: Vec<Vec<(usize, Vec<String>)>>,
     }
 
     pub struct ReplicaInfo {    // for master to gather information about the connected clients
@@ -111,7 +118,7 @@ pub mod utils {
     pub const _ERROR_STREAM_GEQ_ID_EXISTS_: &str = "ERR The ID specified in XADD is equal or smaller than the target stream top item";
     pub const _ERROR_STREAM_NULL_ID_: &str = "ERR The ID specified in XADD must be greater than 0-0";
     pub const _ERROR_INCR_NOT_AN_INT_: &str = "ERR value is not an integer or out of range";
-    pub const _ERROR_EXEC_NONE_PENDING_: &str = "ERR EXEC without MULTI";
+    pub const _ERROR_EXEC_WITHOUT_MULTI_: &str = "ERR EXEC without MULTI";
 
     // print bytes as string
     pub fn pbas(buf: &Vec<u8>) {
@@ -119,8 +126,12 @@ pub mod utils {
     }
 
     pub fn encode_array(vals: &Vec<String>) -> String {
+
         let mut output = format!("*{}\r\n", vals.len());
         for v in vals {
+            if v == "" {
+                continue;
+            }
             // v.len() > 1 in the second case because '*' of <REPLCONF GETACK *>..
             // ..when sent separately might be mistaken for an array encoding  
             if !v.starts_with("$") && !(v.len() > 1 && v.starts_with("*")) {    // if this string is not already encoded
