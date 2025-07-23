@@ -44,7 +44,7 @@ pub mod utils {
                 res.push(v.clone()); 
             } 
             // encode all bulk strings as an array 
-            encode_array(&vec![format!("{}-{}", self.id.0, self.id.1), encode_array(&res)])
+            encode_array(&vec![encode_bulk(&format!("{}-{}", self.id.0, self.id.1)), encode_array(&res, true)], false)
         }
     }
 
@@ -125,7 +125,7 @@ pub mod utils {
         println!("{}", buf.iter().map(|ch| {*ch as char}).collect::<String>());
     }
 
-    pub fn encode_array(vals: &Vec<String>) -> String {
+    pub fn encode_array(vals: &Vec<String>, raw: bool) -> String {
 
         let mut output = format!("*{}\r\n", vals.len());
         for v in vals {
@@ -134,7 +134,8 @@ pub mod utils {
             }
             // v.len() > 1 in the second case because '*' of <REPLCONF GETACK *>..
             // ..when sent separately might be mistaken for an array encoding  
-            if !v.starts_with("$") && !(v.len() > 1 && v.starts_with("*")) {    // if this string is not already encoded
+            // if !(v.starts_with("-")  && !v.starts_with(":") && !v.starts_with("+") && !v.starts_with("$") && !(v.len() > 1 && v.starts_with("*")) {    // if this string is not already encoded
+            if raw {    // if arguments arent already encoded, encode them as string
                 output += &encode_bulk(v);
             } else {
                 output += v;

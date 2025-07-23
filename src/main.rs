@@ -45,7 +45,7 @@ async fn slave_conn(listener :TcpListener, config_args: Args) {
     let (master_addr, master_port) = config_args.replicaof.split_once(' ').unwrap();
     let mut master_stream = connect_to_master(master_addr, master_port).await;
     println!("connected to master");
-    master_stream.write_all(encode_array(&vec![String::from("PING")]).as_bytes()).await.unwrap();
+    master_stream.write_all(encode_array(&vec![String::from("PING")], true).as_bytes()).await.unwrap();
     // expect PONG
     // input_buf.fill(0);
     input_buf.clear();
@@ -54,7 +54,7 @@ async fn slave_conn(listener :TcpListener, config_args: Args) {
     // expect PONG
 
     // send 2 replconf commands
-    master_stream.write_all(encode_array(&vec![format!("REPLCONF"), format!("listening-port"), format!("{}", config_args.port)]).as_bytes()).await.unwrap();
+    master_stream.write_all(encode_array(&vec![format!("REPLCONF"), format!("listening-port"), format!("{}", config_args.port)], true).as_bytes()).await.unwrap();
     // input_buf.fill(0);
     input_buf.clear();
     master_stream.read_buf(&mut input_buf).await.unwrap();  // single call works because we arent transmitting large amounts of data
@@ -62,14 +62,14 @@ async fn slave_conn(listener :TcpListener, config_args: Args) {
     // expect OK
     // pbas(&input_buf);
 
-    master_stream.write_all(encode_array(&vec![format!("REPLCONF"), format!("capa"), format!("npsnyc2")]).as_bytes()).await.unwrap();
+    master_stream.write_all(encode_array(&vec![format!("REPLCONF"), format!("capa"), format!("npsnyc2")], true).as_bytes()).await.unwrap();
     // input_buf.fill(0);
     input_buf.clear();
     master_stream.read_buf(&mut input_buf).await.unwrap();
     // expect OK
     // pbas(&input_buf);
 
-    master_stream.write_all(encode_array(&vec![format!("PSYNC"), format!("?"), format!("{}", -1)]).as_bytes()).await.unwrap();
+    master_stream.write_all(encode_array(&vec![format!("PSYNC"), format!("?"), format!("{}", -1)], true).as_bytes()).await.unwrap();
     // input_buf.fill(0);
     // input_buf.clear();
     // dont read from stream here, read it from the thread so cmds dont get lost in case they arrive in same packets 
@@ -171,9 +171,7 @@ async fn conn(mut _stream: TcpStream,
     let mut output: Vec<Vec<u8>> = Vec::new();
 
     loop {
-        cmds.clear();
-        output.clear();
-        
+       
         // 0s are needed to mark end of cmds 
         input_buf.fill(0);
         select! {
@@ -222,7 +220,6 @@ async fn conn(mut _stream: TcpStream,
             }  
             // these are basically commands, at one point we will have to parse commands with their parameters, they could be int, boolean etc.   
             // println!("exec: {:?}", cmds);
-
             if config_args.queueing { 
                 _stream.write_all(encode_simple(&vec!["QUEUED"]).as_bytes()).await.unwrap();
                 continue; 
@@ -243,9 +240,10 @@ async fn conn(mut _stream: TcpStream,
                         }
 
                         cmd
-                    }).collect()).as_bytes().to_vec().to_owned()];
+                    }).collect(), false).as_bytes().to_vec().to_owned()];
                 }
             }
+            cmds.clear();
         } 
 
         for out in &output {
@@ -254,5 +252,6 @@ async fn conn(mut _stream: TcpStream,
             _stream.write_all(out).await.unwrap();
             // if you wanna use try_write() you will need to manually send data piece by piece by tracking bytes sent
         }
+        output.clear();
     }
 }

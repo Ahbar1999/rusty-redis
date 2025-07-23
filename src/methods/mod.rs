@@ -105,7 +105,7 @@ pub mod methods {
             }
         }
 
-        encode_array(&matched_keys)
+        encode_array(&matched_keys, true)
     }
 
     pub async fn cmd_sync(dbfilepath: &String, storage_ref: Arc<Mutex<HashMap<String, (RDBValue, Option<SystemTime>)>>>) {
@@ -371,7 +371,7 @@ pub mod methods {
     }
 
     pub fn cmd_get_ack(bytes_offset: usize) -> String {
-        encode_array(&vec!["REPLCONF".to_owned(), "ACK".to_owned(), bytes_offset.to_string()])
+        encode_array(&vec!["REPLCONF".to_owned(), "ACK".to_owned(), bytes_offset.to_string()], true)
     }
 
     pub async fn cmd_wait(max_ack: usize, 
@@ -576,7 +576,7 @@ pub mod methods {
             }
         } 
         
-        encode_array(&result)
+        encode_array(&result, false)
     }
 
     pub async fn cmd_xread(
@@ -672,14 +672,14 @@ pub mod methods {
                 }
             }
             if !result.is_empty() {
-                final_result.push(encode_array(&vec![key.to_owned(), encode_array(&result)])); 
+                final_result.push(encode_array(&vec![encode_bulk(key), encode_array(&result, false)], false)); 
             }
         } 
 
         if final_result.is_empty() {
             return encode_bulk("");
         }    
-        encode_array(&final_result)
+        encode_array(&final_result, false)
     }
 
     pub async fn cmd_incr(cmd_args: &Vec<String>, storage_ref: Arc<Mutex<HashMap<String, (RDBValue, Option<SystemTime>)>>>) -> String {
@@ -726,6 +726,7 @@ pub mod methods {
 
         // bytes_rx represents the number of bytes of commands that came after handshake sequence 
         for (bytes_rx, cmd_args) in cmds {
+            println!("exec: {:?}", cmd_args);
             let responses = match cmd_args[0].to_uppercase().as_str() {
                 "ECHO" => {
                     vec![encode_bulk(&cmd_args[1]).as_bytes().to_owned()]
@@ -745,7 +746,7 @@ pub mod methods {
                     config_args.bytes_rx += bytes_rx;
                     
                     if config_args.replicaof.starts_with("None") {  // if this server is a master
-                        tx.send(encode_array(&cmd_args).as_bytes().to_vec()).unwrap();  // send replication
+                        tx.send(encode_array(&cmd_args, true).as_bytes().to_vec()).unwrap();  // send replication
                     }
                     
                     let mut response = vec![cmd_set(&cmd_args, storage_ref.clone()).await.as_bytes().to_owned()];
@@ -829,7 +830,7 @@ pub mod methods {
                     }
                     println!("bytes to match {}", target_bytes);
                     
-                    let msg = encode_array(&vec!["REPLCONF".to_owned(), "GETACK".to_owned(), "*".to_owned()]);
+                    let msg = encode_array(&vec!["REPLCONF".to_owned(), "GETACK".to_owned(), "*".to_owned()], true);
                     tx.send(msg.as_bytes().to_vec()).unwrap();
 
                     if target_bytes > 0 { // only add getack bytes to master if some writes exist
