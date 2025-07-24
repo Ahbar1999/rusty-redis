@@ -718,22 +718,26 @@ pub mod methods {
         storage_ref: Arc<Mutex<HashMap<String, (RDBValue, Option<SystemTime>)>>>) -> String{
 
         let key = &cmd_args[1];
-        let value = &cmd_args[2];
-        let result;
+        let mut value ;
+        let mut result =0;
         let mut _db = storage_ref.lock().await;
-        if let Some((rdb_val, _)) = _db.get_mut(key) {
-            match rdb_val {
-                RDBValue::List(v) => {
-                    v.push(value.clone());
-                    result = v.len();
-                },
-                _ => {
-                    panic!("incorrect value data type found in cmd_rpush()");
+
+        for i in 2..cmd_args.len() {
+            value = &cmd_args[i];
+            if let Some((rdb_val, _)) = _db.get_mut(key) {
+                match rdb_val {
+                    RDBValue::List(v) => {
+                        v.push(value.clone());
+                        result = v.len();
+                    },
+                    _ => {
+                        panic!("incorrect value data type found in cmd_rpush()");
+                    }
                 }
+            } else {
+                _db.insert(key.clone(), (RDBValue::List(vec![value.clone()]), None));
+                result = 1;
             }
-        } else {
-            _db.insert(key.clone(), (RDBValue::List(vec![value.clone()]), None));
-            result = 1;
         }
 
        encode_int(result) 
