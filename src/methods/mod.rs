@@ -2,7 +2,6 @@ pub mod methods {
     // this module contains all the redist command methods
 
     use core::panic;
-    use std::arch::global_asm;
     use std::collections::VecDeque;
     use std::io::ErrorKind;
     use std::sync::Arc;
@@ -859,26 +858,35 @@ pub mod methods {
     }
 
     pub async fn cmd_blpop(
+        config_args: &Args,
         cmd_args: &Vec<String>, 
         storage_ref: Arc<Mutex<HashMap<String, (RDBValue, Option<SystemTime>)>>>,
-        mut rx: broadcast::Receiver<Vec<u8>>) -> String {
+        mut rx: broadcast::Receiver<Vec<u8>>,
+        glob_config: Arc<Mutex<GlobConfig>>) -> String {
 
         
         let key = &cmd_args[1];
         // ignore timeout for now
         let timeout: usize = cmd_args[2].parse().unwrap(); 
-        let mut result = vec![key.clone()];
+        let mut result  = vec![];
             
         loop {  // loop until msg is recvd
             let msg = rx.recv().await.unwrap(); 
             if msg.starts_with(_EVENT_DB_UPDATED_LIST_.as_bytes()) {
                 if msg[_EVENT_DB_UPDATED_LIST_.as_bytes().len()..].starts_with(key.as_bytes()) {
+                    // if this isnt the first one waiting on this key
+                    if glob_config.lock().await.blocked_clients.get(&cmd_args[1]).unwrap().front().unwrap() != &config_args.other_port {
+                        break;
+                    }
+
+                    // if it is 
+                    glob_config.lock().await.blocked_clients.clear();
                     let mut _db = storage_ref.lock().await;
                     let (ref mut rdb_value, _) = _db.get_mut(key).unwrap();
 
                     match rdb_value {
                         RDBValue::List(v) => {
-                            result.push(v.pop_front().unwrap());
+                            result = vec![key.clone(), v.pop_front().unwrap()];
                         },
                         _ => {
                             panic!("stop ittttt");
@@ -1076,14 +1084,8 @@ pub mod methods {
                             map.blocked_clients.insert(cmd_args[1].clone(), new_queue);
                         } 
                     } 
-                    let result =vec![cmd_blpop(cmd_args, storage_ref.clone(), tx.subscribe()).await.as_bytes().to_owned()];
-
-                    // if this isnt the first one waiting on this key
-                    if glob_config.lock().await.blocked_clients.get(&cmd_args[1]).unwrap().front().unwrap() != &config_args.other_port {
-                        return vec![];
-                    }
-
-                    return result;
+                    // let result = 
+                    return vec![cmd_blpop(config_args, cmd_args, storage_ref.clone(), tx.subscribe(), glob_config).await.as_bytes().to_owned()];
                 },
                 _ => {
                     vec![]
