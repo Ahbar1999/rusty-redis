@@ -1,4 +1,4 @@
-use std::{collections::HashMap, io::ErrorKind, sync::Arc, time::SystemTime, vec};
+use std::{collections::{HashMap, VecDeque}, hash::Hash, io::ErrorKind, sync::Arc, time::SystemTime, vec};
 use clap::Parser;
 use tokio::{io::{AsyncReadExt, AsyncWriteExt}, net::{TcpListener, TcpStream}, select, sync::{broadcast, Mutex}};
 use crate::utils::utils::*;
@@ -79,6 +79,7 @@ async fn slave_conn(listener :TcpListener, config_args: Args) {
 
     let glob_config_ref = Arc::new(Mutex::new(GlobConfig{
         replicas: HashMap::new(),
+        blocked_clients: HashMap::new(),
     }));
 
     let (tx, _) = broadcast::channel::<Vec<u8>>(1024);
@@ -116,6 +117,7 @@ async fn master_conn(listener :TcpListener, config_args: Args) {
 
     let master_config_ref = Arc::new(Mutex::new(GlobConfig{ 
         replicas: HashMap::new(),
+        blocked_clients: HashMap::new()
     }));
     
     if !config_args.dir.starts_with("UNSET") { 

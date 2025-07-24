@@ -2,12 +2,12 @@ pub mod methods {
     // this module contains all the redist command methods
 
     use core::panic;
+    use std::arch::global_asm;
     use std::collections::VecDeque;
     use std::io::ErrorKind;
     use std::sync::Arc;
     use std::{collections::HashMap, ops::BitAnd, time::{Duration, SystemTime, UNIX_EPOCH}, vec};
     use bytes::BufMut;
-    use hex::encode;
     use tokio::net::TcpStream;
     use tokio::select;
     use tokio::sync::broadcast;
@@ -718,33 +718,44 @@ pub mod methods {
     pub async fn cmd_list_push(
         cmd_args: &Vec<String>,
         storage_ref: Arc<Mutex<HashMap<String, (RDBValue, Option<SystemTime>)>>>,
-        push_back: bool) -> String {
+        push_back: bool,
+        tx: broadcast::Sender<Vec<u8>>) -> String {
 
+        let result;
         let key = &cmd_args[1];
-        let mut _db = storage_ref.lock().await;
+        {
+            let mut _db = storage_ref.lock().await;
 
-        if _db.get_mut(key).is_none() {
-            _db.insert(key.clone(), (RDBValue::List(VecDeque::new()), None));
-        } 
+            if _db.get_mut(key).is_none() {
+                _db.insert(key.clone(), (RDBValue::List(VecDeque::new()), None));
+            } 
 
-        let (rdb_value, _) = _db.get_mut(key).unwrap(); 
+            let (rdb_value, _) = _db.get_mut(key).unwrap(); 
 
-        match rdb_value {
-            RDBValue::List(v) => {
-                for i in 2..cmd_args.len() {
-                    if push_back {
-                        v.push_back(cmd_args[i].clone());
-                    } else {
-                        v.push_front(cmd_args[i].clone());
+            match rdb_value {
+                RDBValue::List(v) => {
+                    for i in 2..cmd_args.len() {
+                        if push_back {
+                            v.push_back(cmd_args[i].clone());
+                        } else {
+                            v.push_front(cmd_args[i].clone());
+                        }
                     }
-                }
 
-                return encode_int(v.len());
-            },
-            _ => {
-                panic!("invalid data type in cmd_list_push()");
+                    result =encode_int(v.len());
+                },
+                _ => {
+                    panic!("invalid data type in cmd_list_push()");
+                }
             }
         }
+
+        // release lock on db, send message
+        let mut msg = _EVENT_DB_UPDATED_LIST_.as_bytes().to_vec().to_owned();
+        msg.extend_from_slice(key.as_bytes());
+        tx.send(msg).ok();
+
+        return result;
     }
 
     pub async fn cmd_lrange(
@@ -845,6 +856,40 @@ pub mod methods {
         } else {
             return encode_bulk(""); 
         }
+    }
+
+    pub async fn cmd_blpop(
+        cmd_args: &Vec<String>, 
+        storage_ref: Arc<Mutex<HashMap<String, (RDBValue, Option<SystemTime>)>>>,
+        mut rx: broadcast::Receiver<Vec<u8>>) -> String {
+
+        
+        let key = &cmd_args[1];
+        // ignore timeout for now
+        let timeout: usize = cmd_args[2].parse().unwrap(); 
+        let mut result = vec![key.clone()];
+            
+        loop {  // loop until msg is recvd
+            let msg = rx.recv().await.unwrap(); 
+            if msg.starts_with(_EVENT_DB_UPDATED_LIST_.as_bytes()) {
+                if msg[_EVENT_DB_UPDATED_LIST_.as_bytes().len()..].starts_with(key.as_bytes()) {
+                    let mut _db = storage_ref.lock().await;
+                    let (ref mut rdb_value, _) = _db.get_mut(key).unwrap();
+
+                    match rdb_value {
+                        RDBValue::List(v) => {
+                            result.push(v.pop_front().unwrap());
+                        },
+                        _ => {
+                            panic!("stop ittttt");
+                        }
+                    }
+                    break;
+                }
+            }
+        }
+
+        encode_array(&result, true)
     }
 
     pub async fn cmd_exec(
@@ -1005,25 +1050,41 @@ pub mod methods {
                     vec![response_ok().as_bytes().to_owned()]
                 },
                 "RPUSH" => {
-                    vec![cmd_list_push(&cmd_args, storage_ref.clone(), true).await.as_bytes().to_owned()]
+                    vec![cmd_list_push(&cmd_args, storage_ref.clone(), true, tx.clone()).await.as_bytes().to_owned()]
                 },
                 "LRANGE" => {
                     vec![cmd_lrange(&cmd_args, storage_ref.clone()).await.as_bytes().to_owned()]
                 },
                 "LPUSH" => {
-                    vec![cmd_list_push(&cmd_args, storage_ref.clone(), false).await.as_bytes().to_owned()]
+                    vec![cmd_list_push(&cmd_args, storage_ref.clone(), false, tx.clone()).await.as_bytes().to_owned()]
                 },
                 "LLEN" =>{
                     vec![cmd_llen(&cmd_args, storage_ref.clone()).await.as_bytes().to_owned()]
                 }
                 "LPOP" => {
                     vec![cmd_lpop(&cmd_args, storage_ref.clone()).await.as_bytes().to_owned()]
-                }
+                },
+                "BLPOP" => {
+                    // add this client to the waiting list
+                    {
+                        let mut map = glob_config.lock().await;
+                        if let Some(clients) = map.blocked_clients.get_mut(&cmd_args[1]) {
+                            clients.push_back(config_args.other_port);
+                        } else {
+                            let mut new_queue = VecDeque::new();
+                            new_queue.push_back(config_args.other_port);
+                            map.blocked_clients.insert(cmd_args[1].clone(), new_queue);
+                        } 
+                    } 
+                    let result =vec![cmd_blpop(cmd_args, storage_ref.clone(), tx.subscribe()).await.as_bytes().to_owned()];
 
-                // "EXEC" => {
-                //     config_args.queueing = false;
-                //     vec![redis_err(_ERROR_EXEC_WITHOUT_MULTI_).as_bytes().to_owned()]
-                // }
+                    // if this isnt the first one waiting on this key
+                    if glob_config.lock().await.blocked_clients.get(&cmd_args[1]).unwrap().front().unwrap() != &config_args.other_port {
+                        return vec![];
+                    }
+
+                    return result;
+                },
                 _ => {
                     vec![]
                     // unimplemented!("Unidentified command");
@@ -1047,11 +1108,6 @@ pub mod methods {
         return output;
         
     }
-    /*
-    async fn cmd_get_key_rdb() -> Option<RDBValue> {
-        unimplemented!()
-    }
-    */
 }
 
 

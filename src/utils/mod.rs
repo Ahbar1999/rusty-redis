@@ -108,6 +108,7 @@ pub mod utils {
 
     pub struct GlobConfig {
         pub replicas: HashMap::<u16, ReplicaInfo>,
+        pub blocked_clients: HashMap<String, VecDeque<u16>>,
     }
 
     pub const DELIM: u8 = b'\r';
@@ -119,6 +120,7 @@ pub mod utils {
     pub const _RDB_TIMESTAMP_S_FLAG: u8 = 0xFD;
     pub const _EMPTY_RDB_FILE_: &str= "524544495330303131fa0972656469732d76657205372e322e30fa0a72656469732d62697473c040fa056374696d65c26d08bc65fa08757365642d6d656dc2b0c41000fa08616f662d62617365c000fff06e3bfec0ff5aa2";
     pub const _EVENT_DB_UPDATED_: &str = "DB_UPDATED";
+    pub const _EVENT_DB_UPDATED_LIST_: &str = "DB_UPDATED_LIST";
     pub const _ERROR_STREAM_GEQ_ID_EXISTS_: &str = "ERR The ID specified in XADD is equal or smaller than the target stream top item";
     pub const _ERROR_STREAM_NULL_ID_: &str = "ERR The ID specified in XADD must be greater than 0-0";
     pub const _ERROR_INCR_NOT_AN_INT_: &str = "ERR value is not an integer or out of range";
