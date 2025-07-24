@@ -231,7 +231,7 @@ async fn conn(mut _stream: TcpStream,
                 output = vec![encode_simple(&vec!["QUEUED"]).as_bytes().to_owned()];
             } else {
                 if output.is_empty() {
-                    output = exec(&cmds,
+                    output = cmd_exec(&cmds,
                         &mut config_args,
                         storage_ref.clone(),
                         tx.clone(),

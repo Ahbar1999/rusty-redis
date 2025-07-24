@@ -6,6 +6,7 @@ pub mod methods {
     use std::sync::Arc;
     use std::{collections::HashMap, ops::BitAnd, time::{Duration, SystemTime, UNIX_EPOCH}, vec};
     use bytes::BufMut;
+    use hex::encode;
     use tokio::net::TcpStream;
     use tokio::select;
     use tokio::sync::broadcast;
@@ -743,7 +744,38 @@ pub mod methods {
        encode_int(result) 
     }
 
-    pub async fn exec(
+    pub async fn cmd_lrange(
+        cmd_args: &Vec<String>,
+        storage_ref: Arc<Mutex<HashMap<String, (RDBValue, Option<SystemTime>)>>>) -> String {
+            
+        let key = &cmd_args[1];
+        let l: usize = cmd_args[2].parse().unwrap();
+        let r: usize = cmd_args[3].parse().unwrap();
+
+        if l > r {
+            return encode_array(&vec![], true);
+        }
+
+        let _db = storage_ref.lock().await;
+        let mut result = vec![];
+
+        if let Some((rdb_val, _)) =  _db.get(key) {
+            match rdb_val {
+                RDBValue::List(v) => {
+                    for j in l..std::cmp::min(r + 1, v.len()) {
+                        result.push(v[j].clone());
+                    }         
+                },
+                _ => { 
+                    panic!("mismatched data types");
+                }
+            }
+        } 
+
+        encode_array(&result, true)
+    }
+
+    pub async fn cmd_exec(
         cmds: &Vec<(usize, Vec<String>)>, 
         config_args: &mut Args,
         storage_ref: Arc<Mutex<HashMap<String, (RDBValue, Option<SystemTime>)>>>,
@@ -902,6 +934,9 @@ pub mod methods {
                 },
                 "RPUSH" => {
                     vec![cmd_rpush(&cmd_args, storage_ref.clone()).await.as_bytes().to_owned()]
+                },
+                "LRANGE" => {
+                    vec![cmd_lrange(&cmd_args, storage_ref.clone()).await.as_bytes().to_owned()]
                 }
                 // "EXEC" => {
                 //     config_args.queueing = false;
