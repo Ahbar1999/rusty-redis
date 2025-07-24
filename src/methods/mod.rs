@@ -830,14 +830,20 @@ pub mod methods {
                         } 
                     }
 
-                    return encode_array(&result, true);
+                    // if single variant was called
+                    if cmd_args.len() == 2 {
+                        return encode_bulk(&result[0]);
+                    } else {
+                        // if muti variant was called 
+                        return encode_array(&result, true); 
+                    }
                 },
                 _ => {
                     panic!("invalid data type for this key in cmd_lpop()");
                 }
             }
         } else {
-            return encode_bulk("none"); 
+            return encode_bulk(""); 
         }
     }
 
