@@ -1,5 +1,5 @@
 pub mod utils {
-    use std::{collections::HashMap, time::SystemTime};
+    use std::{collections::{HashMap, VecDeque}, time::SystemTime};
     use clap::Parser;
    
     // this module provides frequently used funtions, constants, types
@@ -10,7 +10,7 @@ pub mod utils {
         // change the underlying data type for stream variant to something like rbtree keyed on id field of stream entry
         // this will allow the most important operation on streams(range operation) to be executed effeciently 
         Stream(Vec<StreamEntry>),
-        List(Vec<String>), 
+        List(VecDeque<String>), 
     }
 
     impl RDBValue {

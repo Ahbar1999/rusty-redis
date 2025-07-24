@@ -2,6 +2,7 @@ pub mod methods {
     // this module contains all the redist command methods
 
     use core::panic;
+    use std::collections::VecDeque;
     use std::io::ErrorKind;
     use std::sync::Arc;
     use std::{collections::HashMap, ops::BitAnd, time::{Duration, SystemTime, UNIX_EPOCH}, vec};
@@ -714,34 +715,36 @@ pub mod methods {
         encode_int(result.parse().unwrap())
     }
 
-    pub async fn cmd_rpush(
+    pub async fn cmd_list_push(
         cmd_args: &Vec<String>,
-        storage_ref: Arc<Mutex<HashMap<String, (RDBValue, Option<SystemTime>)>>>) -> String{
+        storage_ref: Arc<Mutex<HashMap<String, (RDBValue, Option<SystemTime>)>>>,
+        push_back: bool) -> String {
 
         let key = &cmd_args[1];
-        let mut value ;
-        let mut result =0;
         let mut _db = storage_ref.lock().await;
 
-        for i in 2..cmd_args.len() {
-            value = &cmd_args[i];
-            if let Some((rdb_val, _)) = _db.get_mut(key) {
-                match rdb_val {
-                    RDBValue::List(v) => {
-                        v.push(value.clone());
-                        result = v.len();
-                    },
-                    _ => {
-                        panic!("incorrect value data type found in cmd_rpush()");
+        if _db.get_mut(key).is_none() {
+            _db.insert(key.clone(), (RDBValue::List(VecDeque::new()), None));
+        } 
+
+        let (rdb_value, _) = _db.get_mut(key).unwrap(); 
+
+        match rdb_value {
+            RDBValue::List(v) => {
+                for i in 2..cmd_args.len() {
+                    if push_back {
+                        v.push_back(cmd_args[i].clone());
+                    } else {
+                        v.push_front(cmd_args[i].clone());
                     }
                 }
-            } else {
-                _db.insert(key.clone(), (RDBValue::List(vec![value.clone()]), None));
-                result = 1;
+
+                return encode_int(v.len());
+            },
+            _ => {
+                panic!("invalid data type in cmd_list_push()");
             }
         }
-
-       encode_int(result) 
     }
 
     pub async fn cmd_lrange(
@@ -789,6 +792,43 @@ pub mod methods {
 
         encode_array(&result, true)
     }
+
+    // pub async fn cmd_lpush(
+    //     cmd_args: &Vec<String>,
+    //     storage_ref: Arc<Mutex<HashMap<String, (RDBValue, Option<SystemTime>)>>>) -> String {
+
+    //     let key = &cmd_args[1];
+
+    //     let mut _db = storage_ref.lock().await;
+
+    //     if _db.get_mut(key).is_none() {
+    //         _db.insert(key.clone(), (RDBValue::List(VecDeque::new()), None));
+    //     } 
+
+    //     let (rdb_value, _) = _db.get_mut(key).unwrap(); 
+
+    //     match rdb_value {
+    //         RDBValue::List(v) => {
+    //             for i in 2..cmd_args.len() - 1 {
+    //                 v.push_front(cmd_args[i].clone());
+    //             }
+    //         },
+    //         _ => {
+    //             panic!("invalid data type in cmd_lpush()");
+    //         }
+    //     }
+
+    //     let result = match rdb_value {
+    //         RDBValue::List(v) => {
+    //            v.len() 
+    //         },
+    //         _ => {
+    //             panic!("invalid data type in cmd_lpush()");
+    //         }
+    //     };
+
+    //     return encode_int(result);
+    // }  
 
     pub async fn cmd_exec(
         cmds: &Vec<(usize, Vec<String>)>, 
@@ -948,11 +988,15 @@ pub mod methods {
                     vec![response_ok().as_bytes().to_owned()]
                 },
                 "RPUSH" => {
-                    vec![cmd_rpush(&cmd_args, storage_ref.clone()).await.as_bytes().to_owned()]
+                    vec![cmd_list_push(&cmd_args, storage_ref.clone(), true).await.as_bytes().to_owned()]
                 },
                 "LRANGE" => {
                     vec![cmd_lrange(&cmd_args, storage_ref.clone()).await.as_bytes().to_owned()]
+                },
+                "LPUSH" => {
+                    vec![cmd_list_push(&cmd_args, storage_ref.clone(), false).await.as_bytes().to_owned()]
                 }
+
                 // "EXEC" => {
                 //     config_args.queueing = false;
                 //     vec![redis_err(_ERROR_EXEC_WITHOUT_MULTI_).as_bytes().to_owned()]
