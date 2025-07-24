@@ -287,8 +287,8 @@ pub mod methods {
                 RDBValue::String(data) => {
                     data
                 },
-                RDBValue::Stream(_) => {
-                    unimplemented!("RDB file parsing with stream data type not implemented yet.")
+                _ => {
+                    unimplemented!("RDB file parsing is implemented for string data type only.")
                 }
             };
             out_bytes.put_u8(value_data.len() as u8);
@@ -598,7 +598,7 @@ pub mod methods {
                             // save stream latest entries
                             state.insert(k.clone(), entries.iter().next_back().unwrap().id.clone());
                         },
-                        RDBValue::String(_) => {
+                        _ => {
                             continue;
                         }
                     }
@@ -686,11 +686,8 @@ pub mod methods {
         let mut _db =storage_ref.lock().await;
         let mut result = "0".to_owned();
         
-        if let Some((rdb_value, ts)) = _db.get_mut(&cmd_args[1]) {
+        if let Some((rdb_value, _)) = _db.get_mut(&cmd_args[1]) {
             match rdb_value {
-                RDBValue::Stream(_) => {
-                    unimplemented!("modifying stream entries not implemented yet!");
-                },
                 RDBValue::String(s) => {
                     if let Ok(num) = s.parse::<usize>() {
                         *s = (num + 1).to_string();
@@ -698,6 +695,9 @@ pub mod methods {
                     } else {
                         return redis_err(_ERROR_INCR_NOT_AN_INT_); 
                     }
+                },
+                _ => {
+                    unimplemented!("incr only implemented for RDBValue::String");
                 }
             }
         } else {
@@ -711,6 +711,32 @@ pub mod methods {
         }
 
         encode_int(result.parse().unwrap())
+    }
+
+    pub async fn cmd_rpush(
+        cmd_args: &Vec<String>,
+        storage_ref: Arc<Mutex<HashMap<String, (RDBValue, Option<SystemTime>)>>>) -> String{
+
+        let key = &cmd_args[1];
+        let value = &cmd_args[2];
+        let result;
+        let mut _db = storage_ref.lock().await;
+        if let Some((rdb_val, _)) = _db.get_mut(key) {
+            match rdb_val {
+                RDBValue::List(v) => {
+                    v.push(value.clone());
+                    result = v.len();
+                },
+                _ => {
+                    panic!("incorrect value data type found in cmd_rpush()");
+                }
+            }
+        } else {
+            _db.insert(key.clone(), (RDBValue::List(vec![value.clone()]), None));
+            result = 1;
+        }
+
+       encode_int(result) 
     }
 
     pub async fn exec(
@@ -869,6 +895,9 @@ pub mod methods {
                 "DISCARD" => {
                     config_args.queueing = false;
                     vec![response_ok().as_bytes().to_owned()]
+                },
+                "RPUSH" => {
+                    vec![cmd_rpush(&cmd_args, storage_ref.clone()).await.as_bytes().to_owned()]
                 }
                 // "EXEC" => {
                 //     config_args.queueing = false;

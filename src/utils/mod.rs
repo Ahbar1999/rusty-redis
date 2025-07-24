@@ -10,6 +10,7 @@ pub mod utils {
         // change the underlying data type for stream variant to something like rbtree keyed on id field of stream entry
         // this will allow the most important operation on streams(range operation) to be executed effeciently 
         Stream(Vec<StreamEntry>),
+        List(Vec<String>), 
     }
 
     impl RDBValue {
@@ -21,6 +22,9 @@ pub mod utils {
                 },
                 Self::Stream(_) => {
                     "stream".to_owned() 
+                },
+                Self::List(_) => {
+                    "list".to_owned()
                 }
             }
        } 
