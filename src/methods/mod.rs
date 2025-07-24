@@ -749,12 +749,8 @@ pub mod methods {
         storage_ref: Arc<Mutex<HashMap<String, (RDBValue, Option<SystemTime>)>>>) -> String {
             
         let key = &cmd_args[1];
-        let l: usize = cmd_args[2].parse().unwrap();
-        let r: usize = cmd_args[3].parse().unwrap();
-
-        if l > r {
-            return encode_array(&vec![], true);
-        }
+        let mut l: isize = cmd_args[2].parse().unwrap();
+        let mut r: isize = cmd_args[3].parse().unwrap();
 
         let _db = storage_ref.lock().await;
         let mut result = vec![];
@@ -762,8 +758,27 @@ pub mod methods {
         if let Some((rdb_val, _)) =  _db.get(key) {
             match rdb_val {
                 RDBValue::List(v) => {
-                    for j in l..std::cmp::min(r + 1, v.len()) {
-                        result.push(v[j].clone());
+                    let size = v.len() as isize;
+                    if l < 0 && l < -(size - 1) {
+                        l = 0;
+                    }
+                    if r < 0 && r < -(size - 1) {
+                        r = 0;
+                    } 
+
+                    if l < 0 {
+                        l = (l + size) % size;
+                    }
+                    if r < 0 {
+                        r = (r + size) % size;
+                    }
+
+                    if l > r {
+                        return encode_array(&vec![], true);
+                    }
+
+                    for j in l..std::cmp::min(r + 1, size) {
+                        result.push(v[j as usize].clone());
                     }         
                 },
                 _ => { 
