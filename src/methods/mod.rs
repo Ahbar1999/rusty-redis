@@ -10,7 +10,7 @@ pub mod methods {
     use tokio::net::TcpStream;
     use tokio::select;
     use tokio::sync::broadcast;
-    use tokio::time::{interval, sleep};
+    use tokio::time::{interval, sleep, sleep_until, Instant};
     use tokio::{fs::File, io::{AsyncReadExt, AsyncWriteExt}, sync::Mutex};
     use crc64::crc64;
     use crate::utils::utils::*;
@@ -752,6 +752,7 @@ pub mod methods {
         // release lock on db, send message
         let mut msg = _EVENT_DB_UPDATED_LIST_.as_bytes().to_vec().to_owned();
         msg.extend_from_slice(key.as_bytes());
+        pbas(&msg);
         tx.send(msg).ok();
 
         return result;
@@ -863,38 +864,60 @@ pub mod methods {
         storage_ref: Arc<Mutex<HashMap<String, (RDBValue, Option<SystemTime>)>>>,
         mut rx: broadcast::Receiver<Vec<u8>>,
         glob_config: Arc<Mutex<GlobConfig>>) -> String {
-
         
         let key = &cmd_args[1];
-        // ignore timeout for now
-        let timeout: usize = cmd_args[2].parse().unwrap(); 
+        let mut timeout: f32 = cmd_args[2].parse().unwrap(); 
         let mut result  = vec![];
-            
-        loop {  // loop until msg is recvd
-            let msg = rx.recv().await.unwrap(); 
-            if msg.starts_with(_EVENT_DB_UPDATED_LIST_.as_bytes()) {
-                if msg[_EVENT_DB_UPDATED_LIST_.as_bytes().len()..].starts_with(key.as_bytes()) {
-                    // if this isnt the first one waiting on this key
-                    if glob_config.lock().await.blocked_clients.get(&cmd_args[1]).unwrap().front().unwrap() != &config_args.other_port {
-                        break;
+        if timeout == 0.0 {
+            timeout = 60.0 * 60.0;  // 1 hour, basically block infinitely for our purposes
+        }
+        let end = Instant::now() + Duration::from_secs_f32(timeout);
+
+        loop {
+            select! {
+                _ = sleep_until(end) => {
+                    // remove this client from the queue
+                    // we could use a hashmap to make insert and removals O(1) 
+                    glob_config.lock().await.blocked_clients.get_mut(&cmd_args[1]).unwrap().retain(|ele| *ele != config_args.other_port);
+                   
+                    return encode_bulk("");
+                },
+
+                data = rx.recv() => {
+                    if data.is_err() {
+                        continue;
                     }
 
-                    // if it is 
-                    glob_config.lock().await.blocked_clients.clear();
-                    let mut _db = storage_ref.lock().await;
-                    let (ref mut rdb_value, _) = _db.get_mut(key).unwrap();
+                    let msg = data.unwrap();
 
-                    match rdb_value {
-                        RDBValue::List(v) => {
-                            result = vec![key.clone(), v.pop_front().unwrap()];
-                        },
-                        _ => {
-                            panic!("stop ittttt");
+                    pbas(&msg); 
+                    if msg.starts_with(_EVENT_DB_UPDATED_LIST_.as_bytes()) {
+                        if msg[_EVENT_DB_UPDATED_LIST_.as_bytes().len()..].starts_with(key.as_bytes()) {
+                            // if this isnt the first one waiting on this key
+                            let mut glob_config_data = glob_config.lock().await;
+                            if glob_config_data.blocked_clients.get(&cmd_args[1]).unwrap().is_empty() || glob_config_data.blocked_clients.get(&cmd_args[1]).unwrap().front().unwrap() != &config_args.other_port {
+                                // continue blocking  
+                                continue;
+                            }
+
+                            // if it is 
+                            glob_config_data.blocked_clients.clear();
+                            let mut _db = storage_ref.lock().await;
+                            let (ref mut rdb_value, _) = _db.get_mut(key).unwrap();
+
+                            match rdb_value {
+                                RDBValue::List(v) => {
+                                    result = vec![key.clone(), v.pop_front().unwrap()];
+                                },
+                                _ => {
+                                    panic!("stop ittttt");
+                                }
+                            }
+                            break;
                         }
                     }
-                    break;
                 }
-            }
+            } 
         }
 
         encode_array(&result, true)
@@ -1084,7 +1107,7 @@ pub mod methods {
                             map.blocked_clients.insert(cmd_args[1].clone(), new_queue);
                         } 
                     } 
-                    // let result = 
+                    println!("client {} waiting on {}", config_args.other_port, &cmd_args[1]);
                     return vec![cmd_blpop(config_args, cmd_args, storage_ref.clone(), tx.subscribe(), glob_config).await.as_bytes().to_owned()];
                 },
                 _ => {

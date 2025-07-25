@@ -95,11 +95,11 @@ async fn slave_conn(listener :TcpListener, config_args: Args) {
 
     loop {
         // listen for client connections
-        let (stream, _)  = listener.accept().await.unwrap();
+        let (stream, sockaddr)  = listener.accept().await.unwrap();
         let db_ref = _db.clone();
-        let args_copy = config_args.clone();
+        let mut args_copy = config_args.clone();
+        args_copy.other_port = sockaddr.port();
         let glob_config_ref_copy = glob_config_ref.clone();
-
         // slave will probably not communicate among its connections 
         let tx1 = tx.clone();
         let rx1 = tx.subscribe();
@@ -134,7 +134,7 @@ async fn master_conn(listener :TcpListener, config_args: Args) {
     loop {
         // println!("waiting for new clients or replicas");
         // this could be a replication connection or a client connection 
-        let (stream, _)  = listener.accept().await.unwrap();
+        let (stream, sockaddr)  = listener.accept().await.unwrap();
         // println!("new connection to master from {}:{}", &sockaddr.ip(), &sockaddr.port());
        
         // let new_shared_config_args = shared_config_args.clone();
@@ -144,7 +144,8 @@ async fn master_conn(listener :TcpListener, config_args: Args) {
         // slave will probably not communicate among its connections 
         let tx1 = tx.clone();
         let rx1 = tx.subscribe();
-        let args_copy = config_args.clone();    // why are we cloning 
+        let mut args_copy = config_args.clone();    // why are we cloning
+        args_copy.other_port = sockaddr.port();           // (3 weeks later) this is why
         // this spawns a tokio "asyncrhonous green thread" 
         tokio::spawn(async move {
             // print!("{:?}\n", &new_shared_config_args);
