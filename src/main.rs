@@ -21,9 +21,9 @@ async fn main() {
         config_args.master_repl_offset = 0;
         config_args.pending_cmds = vec![];
         config_args.queueing = false; 
-    } 
+    }  
     config_args.subbed_chans = HashMap::new();
-
+    config_args.client_in_sub_mode = false; 
 
     let listener = TcpListener::bind(format!("127.0.0.1:{}", config_args.port)).await.unwrap();
     println!("connected on port: {}", config_args.port);

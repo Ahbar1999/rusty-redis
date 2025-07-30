@@ -102,7 +102,11 @@ pub mod utils {
         pub pending_cmds: Vec<Vec<(usize, Vec<String>)>>,
 
         #[clap(skip)]
-        pub subbed_chans: HashMap<String, ()>, 
+        pub subbed_chans: HashMap<String, ()>,
+
+        // if this is a client and it is in sub mode 
+        #[clap(skip)]
+        pub client_in_sub_mode: bool, 
     }
 
     pub struct ReplicaInfo {    // for master to gather information about the connected clients
@@ -129,10 +133,21 @@ pub mod utils {
     pub const _ERROR_INCR_NOT_AN_INT_: &str = "ERR value is not an integer or out of range";
     pub const _ERROR_EXEC_WITHOUT_MULTI_: &str = "ERR EXEC without MULTI";
     pub const _ERROR_DISCARD_WITHOUT_MULTI_: &str = "ERR DISCARD without MULTI";
+    // pub const _ERROR_SUB_MODE_ON_: &str = "ERR Can't execute 'set': only (P|S)SUBSCRIBE / (P|S)UNSUBSCRIBE / PING / QUIT / RESET are allowed in this context";
+
+    pub const SUB_MODE_CMDS: [&str; 6] = ["SUBSCRIBE", "UNSUBSCRIBE", "PSUBSCRIBE", "PUNSUBSCRIBE", "PING", "QUIT"];
 
     // print bytes as string
     pub fn pbas(buf: &Vec<u8>) {
         println!("{}", buf.iter().map(|ch| {*ch as char}).collect::<String>());
+    }
+
+    pub fn _error_sub_mode_on_msg_(cmd: &str) -> String {
+        format!("ERR Can't execute '{}': only (P|S)SUBSCRIBE / (P|S)UNSUBSCRIBE / PING / QUIT / RESET are allowed in this context", cmd.to_uppercase())
+    }
+
+    pub fn sanity_check(cmd_name: &str, client_mode: bool) -> bool {
+        return !client_mode || SUB_MODE_CMDS.iter().any(|&mode| mode == cmd_name);
     }
 
     pub fn encode_array(vals: &Vec<String>, raw: bool) -> String {
