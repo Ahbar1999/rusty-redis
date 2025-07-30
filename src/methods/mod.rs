@@ -863,8 +863,8 @@ pub mod methods {
         cmd_args: &Vec<String>, 
         storage_ref: Arc<Mutex<HashMap<String, (RDBValue, Option<SystemTime>)>>>) -> String {
         let name = &cmd_args[1];
-        config_args.subbed_chans += 1;
-        return encode_array(&vec![encode_bulk("subscribe"), encode_bulk(name), encode_int(config_args.subbed_chans)], false);
+        config_args.subbed_chans.insert(name.clone(), ());
+        return encode_array(&vec![encode_bulk("subscribe"), encode_bulk(name), encode_int(config_args.subbed_chans.len())], false);
     }
 
     pub async fn cmd_blpop(

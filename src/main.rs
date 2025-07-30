@@ -22,7 +22,7 @@ async fn main() {
         config_args.pending_cmds = vec![];
         config_args.queueing = false; 
     } 
-    config_args.subbed_chans = 0;
+    config_args.subbed_chans = HashMap::new();
 
 
     let listener = TcpListener::bind(format!("127.0.0.1:{}", config_args.port)).await.unwrap();
