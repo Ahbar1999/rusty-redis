@@ -957,7 +957,10 @@ pub mod methods {
                         vec![encode_bulk(&cmd_args[1]).as_bytes().to_owned()]
                     },
                     "PING" => {
-                        if config_args.replicaof.starts_with("None") {  // if this server instance is a master, part of handshake   
+                        if config_args.replicaof.starts_with("None") {  // if this server instance is a master, part of handshake
+                            if config_args.client_in_sub_mode {
+                                return vec![encode_array(&vec![encode_bulk("pong"), _RESP_EMPTY_STRING_.to_owned()], false).as_bytes().to_owned()];
+                            }   
                             vec![encode_simple(&vec!["PONG"]).as_bytes().to_owned()] 
                         } else {    // if its a replica, dont send back any response
                             config_args.bytes_rx += bytes_rx;
