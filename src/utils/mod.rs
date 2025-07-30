@@ -100,6 +100,9 @@ pub mod utils {
 
         #[clap(skip)]
         pub pending_cmds: Vec<Vec<(usize, Vec<String>)>>,
+
+        #[clap(skip)]
+        pub subbed_chans: usize, 
     }
 
     pub struct ReplicaInfo {    // for master to gather information about the connected clients

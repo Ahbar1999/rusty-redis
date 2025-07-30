@@ -1,4 +1,4 @@
-use std::{collections::{HashMap, VecDeque}, hash::Hash, io::ErrorKind, sync::Arc, time::SystemTime, vec};
+use std::{collections::HashMap, io::ErrorKind, sync::Arc, time::SystemTime, vec};
 use clap::Parser;
 use tokio::{io::{AsyncReadExt, AsyncWriteExt}, net::{TcpListener, TcpStream}, select, sync::{broadcast, Mutex}};
 use crate::utils::utils::*;
@@ -22,6 +22,8 @@ async fn main() {
         config_args.pending_cmds = vec![];
         config_args.queueing = false; 
     } 
+    config_args.subbed_chans = 0;
+
 
     let listener = TcpListener::bind(format!("127.0.0.1:{}", config_args.port)).await.unwrap();
     println!("connected on port: {}", config_args.port);

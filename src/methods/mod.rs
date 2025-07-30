@@ -858,6 +858,15 @@ pub mod methods {
         }
     }
 
+    pub async fn cmd_sub (
+        config_args: &mut Args,
+        cmd_args: &Vec<String>, 
+        storage_ref: Arc<Mutex<HashMap<String, (RDBValue, Option<SystemTime>)>>>) -> String {
+        let name = &cmd_args[1];
+        config_args.subbed_chans += 1;
+        return encode_array(&vec![encode_bulk("subscribe"), encode_bulk(name), encode_int(config_args.subbed_chans)], false);
+    }
+
     pub async fn cmd_blpop(
         config_args: &Args,
         cmd_args: &Vec<String>, 
@@ -1109,6 +1118,9 @@ pub mod methods {
                     } 
                     println!("client {} waiting on {}", config_args.other_port, &cmd_args[1]);
                     return vec![cmd_blpop(config_args, cmd_args, storage_ref.clone(), tx.subscribe(), glob_config).await.as_bytes().to_owned()];
+                },
+                "SUBSCRIBE" => {
+                    return vec![cmd_sub(config_args, cmd_args, storage_ref.clone()).await.as_bytes().to_owned()]
                 },
                 _ => {
                     vec![]
