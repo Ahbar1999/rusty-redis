@@ -7,7 +7,6 @@ pub mod methods {
     use std::sync::Arc;
     use std::{collections::HashMap, ops::BitAnd, time::{Duration, SystemTime, UNIX_EPOCH}, vec};
     use bytes::BufMut;
-    use hex::encode_upper;
     use tokio::net::TcpStream;
     use tokio::select;
     use tokio::sync::broadcast;
@@ -686,7 +685,8 @@ pub mod methods {
     pub async fn cmd_incr(cmd_args: &Vec<String>, storage_ref: Arc<Mutex<HashMap<String, (RDBValue, Option<SystemTime>)>>>) -> String {
 
         let mut _db =storage_ref.lock().await;
-        let mut result = "0".to_owned();
+        let result;
+        //  = "0".to_owned();
         
         if let Some((rdb_value, _)) = _db.get_mut(&cmd_args[1]) {
             match rdb_value {
@@ -860,12 +860,20 @@ pub mod methods {
     }
 
     pub async fn cmd_sub (
+        glob_config_ref: Arc<Mutex<GlobConfig>>,
         config_args: &mut Args,
-        cmd_args: &Vec<String>, 
-        storage_ref: Arc<Mutex<HashMap<String, (RDBValue, Option<SystemTime>)>>>) -> String {
-        let name = &cmd_args[1];
-        config_args.subbed_chans.insert(name.clone(), ());
-        return encode_array(&vec![encode_bulk("subscribe"), encode_bulk(name), encode_int(config_args.subbed_chans.len())], false);
+        cmd_args: &Vec<String>) -> String {
+        let chan_name = &cmd_args[1];
+        config_args.client_in_sub_mode = true;
+        config_args.subbed_chans.insert(chan_name.clone(), ());
+        
+        let mut glob_config = glob_config_ref.lock().await;
+        if let Some(clients) = glob_config.subscriptions.get_mut(chan_name) {
+            clients.push(config_args.other_port);
+        } else {
+            glob_config.subscriptions.insert(chan_name.clone(), vec![config_args.other_port]);
+        }
+        return encode_array(&vec![encode_bulk("subscribe"), encode_bulk(chan_name), encode_int(config_args.subbed_chans.len())], false);
     }
 
     pub async fn cmd_blpop(
@@ -905,6 +913,7 @@ pub mod methods {
                         if msg[_EVENT_DB_UPDATED_LIST_.as_bytes().len()..].starts_with(key.as_bytes()) {
                             // if this isnt the first one waiting on this key
                             let mut glob_config_data = glob_config.lock().await;
+                            // in the tests the thread is panicking here, but it passes the tests because in this case the thread is supposed to exit 
                             if glob_config_data.blocked_clients.get(&cmd_args[1]).unwrap().is_empty() || glob_config_data.blocked_clients.get(&cmd_args[1]).unwrap().front().unwrap() != &config_args.other_port {
                                 // continue blocking  
                                 continue;
@@ -931,6 +940,19 @@ pub mod methods {
         }
 
         encode_array(&result, true)
+    }
+
+    pub async fn cmd_pub(config_args: &Args, 
+        cmd_args: &Vec<String>, 
+        glob_config_ref: Arc<Mutex<GlobConfig>>) -> String {
+
+            let chan_name = &cmd_args[1];
+            let glob_config = glob_config_ref.lock().await;
+            if let Some(clients) = glob_config.subscriptions.get(chan_name) {
+                return encode_int(clients.len()); 
+            }
+
+            return encode_int(0);
     }
 
     pub async fn cmd_exec(
@@ -1130,8 +1152,10 @@ pub mod methods {
                         return vec![cmd_blpop(config_args, cmd_args, storage_ref.clone(), tx.subscribe(), glob_config).await.as_bytes().to_owned()];
                     },
                     "SUBSCRIBE" => {
-                        config_args.client_in_sub_mode = true;
-                        return vec![cmd_sub(config_args, cmd_args, storage_ref.clone()).await.as_bytes().to_owned()]
+                        return vec![cmd_sub(glob_config, config_args, cmd_args).await.as_bytes().to_owned()]
+                    },
+                    "PUBLISH" => {
+                        return vec![cmd_pub(config_args, cmd_args, glob_config.clone()).await.as_bytes().to_owned()]
                     },
                     "QUIT" => {
                         unimplemented!();

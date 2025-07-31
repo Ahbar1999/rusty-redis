@@ -82,6 +82,7 @@ async fn slave_conn(listener :TcpListener, config_args: Args) {
     let glob_config_ref = Arc::new(Mutex::new(GlobConfig{
         replicas: HashMap::new(),
         blocked_clients: HashMap::new(),
+        subscriptions: HashMap::new(),
     }));
 
     let (tx, _) = broadcast::channel::<Vec<u8>>(1024);
@@ -119,7 +120,8 @@ async fn master_conn(listener :TcpListener, config_args: Args) {
 
     let master_config_ref = Arc::new(Mutex::new(GlobConfig{ 
         replicas: HashMap::new(),
-        blocked_clients: HashMap::new()
+        blocked_clients: HashMap::new(),
+        subscriptions: HashMap::new(),
     }));
     
     if !config_args.dir.starts_with("UNSET") { 
@@ -200,15 +202,29 @@ async fn conn(mut _stream: TcpStream,
                 }
             },
             msg = rx.recv() => {
-                if !config_args.replica_conn {  // if this is not a replica connection then ignore replicated command
-                    continue;
+                output = vec![msg.unwrap()];
+
+                if output[0].starts_with("message".as_bytes()) {
+                    let this_chan =  &(parse_array(0, &output[0]).1)[1];
+
+                    // if this client is not subbed to this channel continue 
+                    if config_args.subbed_chans.iter().any(|(chan, _)| chan == this_chan) {
+                        break;
+                    }
                 }
 
-                output = vec![msg.unwrap()];
+                if !config_args.replica_conn {  
+                    output.clear();
+                    // if this is not a replica connection then ignore replicated command or if it is but the this is not a message transmission 
+                    continue;
+                }
                 // print!("recvd on rx: ");
                 // pbas(&output[0]);
             }
         }
+
+
+
 
         if output.is_empty() {  // only parse input_buf if commands recvd over client
             let mut flag = false;   // for detecting if last issued command was exec
