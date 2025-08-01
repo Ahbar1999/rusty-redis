@@ -1,5 +1,5 @@
 pub mod utils {
-    use std::{collections::{HashMap, VecDeque}, time::SystemTime};
+    use std::{collections::{HashMap, HashSet, VecDeque}, time::SystemTime};
     use clap::Parser;
    
     // this module provides frequently used funtions, constants, types
@@ -116,7 +116,7 @@ pub mod utils {
     pub struct GlobConfig {
         pub replicas: HashMap::<u16, ReplicaInfo>,
         pub blocked_clients: HashMap<String, VecDeque<u16>>,
-        pub subscriptions: HashMap<String, Vec<u16>>, 
+        pub subscriptions: HashMap<String, HashSet<u16>>, 
     }
 
     pub const DELIM: u8 = b'\r';

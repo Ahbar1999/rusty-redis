@@ -2,7 +2,7 @@ pub mod methods {
     // this module contains all the redist command methods
 
     use core::panic;
-    use std::collections::VecDeque;
+    use std::collections::{hash_set, HashSet, VecDeque};
     use std::io::ErrorKind;
     use std::sync::Arc;
     use std::{collections::HashMap, ops::BitAnd, time::{Duration, SystemTime, UNIX_EPOCH}, vec};
@@ -869,10 +869,13 @@ pub mod methods {
         
         let mut glob_config = glob_config_ref.lock().await;
         if let Some(clients) = glob_config.subscriptions.get_mut(chan_name) {
-            clients.push(config_args.other_port);
+            clients.insert(config_args.other_port);
         } else {
-            glob_config.subscriptions.insert(chan_name.clone(), vec![config_args.other_port]);
+            let mut new_entry = HashSet::new();
+            new_entry.insert(config_args.other_port);
+            glob_config.subscriptions.insert(chan_name.clone(), new_entry);
         }
+
         return encode_array(&vec![encode_bulk("subscribe"), encode_bulk(chan_name), encode_int(config_args.subbed_chans.len())], false);
     }
 
@@ -950,7 +953,7 @@ pub mod methods {
         let chan_name = &cmd_args[1];
         let msg = &cmd_args[2];
         let transmission = encode_array(&vec!["message".to_owned(), chan_name.clone(), msg.clone()], true);
-        // config_args.subbed_chans.insert(chan_name.as_bytes(), ()); 
+        config_args.subbed_chans.insert(chan_name.as_bytes().to_owned(), ()); 
 
         let glob_config = glob_config_ref.lock().await;
         // check if there are clients subscribed to this channel
@@ -963,6 +966,22 @@ pub mod methods {
         }
 
         return encode_int(0);
+    }
+
+    pub async fn cmd_unsub(
+        config_args: &mut Args,
+        cmd_args: &Vec<String>,
+        glob_config: Arc<Mutex<GlobConfig>>) -> String {
+
+        let chan_name = &cmd_args[1];
+        glob_config.lock().await.subscriptions
+            .get_mut(chan_name)
+            .or(Some(&mut HashSet::new())).unwrap()
+            .remove(&config_args.other_port);
+            
+        config_args.subbed_chans.remove(chan_name.as_bytes());
+
+        return encode_array(&vec![encode_bulk("unsubscribe"), encode_bulk(chan_name), encode_int(glob_config.lock().await.subscriptions.get(chan_name).or(Some(&HashSet::new())).unwrap().len())], false); 
     }
 
     pub async fn cmd_exec(
@@ -1166,6 +1185,9 @@ pub mod methods {
                     },
                     "PUBLISH" => {
                         return vec![cmd_pub(config_args, cmd_args, glob_config.clone(), tx.clone()).await.as_bytes().to_owned()]
+                    },
+                    "UNSUBSCRIBE" => {
+                        return vec![cmd_unsub(config_args, cmd_args, glob_config.clone()).await.as_bytes().to_owned()];
                     },
                     "QUIT" => {
                         unimplemented!();

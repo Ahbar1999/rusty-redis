@@ -1,4 +1,4 @@
-use std::{collections::HashMap, io::ErrorKind, sync::Arc, time::SystemTime, vec};
+use std::{collections::{HashMap, HashSet}, io::ErrorKind, sync::Arc, time::SystemTime, vec};
 use clap::Parser;
 use tokio::{io::{AsyncReadExt, AsyncWriteExt}, net::{TcpListener, TcpStream}, select, sync::{broadcast, Mutex}};
 use crate::utils::utils::*;
@@ -207,23 +207,8 @@ async fn conn(mut _stream: TcpStream,
                 if output[0].starts_with("*3\r\n$7\r\nmessage".as_bytes()) {
                     let (_, contents) = parse_array(0, &output[0]);
                     //  if this client is not subbed to this channel continue 
-                    if config_args.subbed_chans.iter().any(|(chan, _)| 
-                        {
-                            // contents = {"message", <channel name>, <msg content>}
-                            return chan == contents[1].as_bytes();
-                            // for i in 0..(output[0].len() - chan.len()) {
-                            //     // println!("{:?} {:?} {}", chan, &output[0][i..(i + chan.len())], chan == &output[0][i..(i +chan.len())]);
-                            //     // pbas(chan);
-                            //     // pbas(&output[0][i..(i + chan.len() + 1)].to_vec());
-                            //     if chan == &output[0][i..(i +chan.len())] {
-                            //         // println!("found a match");
-                            //         return true;
-                            //     }
-                            // }
-                            // return false;
-                        }
-                    ) {
-                        flag = true; 
+                    if glob_config.lock().await.subscriptions.get(&contents[1]).unwrap_or(&HashSet::new()).get(&config_args.other_port).is_some() {
+                        flag = true;
                     }
                 }
 
