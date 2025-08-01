@@ -865,7 +865,7 @@ pub mod methods {
         cmd_args: &Vec<String>) -> String {
         let chan_name = &cmd_args[1];
         config_args.client_in_sub_mode = true;
-        config_args.subbed_chans.insert(chan_name.clone(), ());
+        config_args.subbed_chans.insert(chan_name.as_bytes().to_vec(), ());
         
         let mut glob_config = glob_config_ref.lock().await;
         if let Some(clients) = glob_config.subscriptions.get_mut(chan_name) {
@@ -942,17 +942,26 @@ pub mod methods {
         encode_array(&result, true)
     }
 
-    pub async fn cmd_pub(config_args: &Args, 
+    pub async fn cmd_pub(_: &Args, 
         cmd_args: &Vec<String>, 
-        glob_config_ref: Arc<Mutex<GlobConfig>>) -> String {
-
-            let chan_name = &cmd_args[1];
-            let glob_config = glob_config_ref.lock().await;
-            if let Some(clients) = glob_config.subscriptions.get(chan_name) {
-                return encode_int(clients.len()); 
+        glob_config_ref: Arc<Mutex<GlobConfig>>,
+        tx: broadcast::Sender<Vec<u8>>) -> String {
+        
+        let chan_name = &cmd_args[1];
+        let msg = &cmd_args[2];
+        let transmission = encode_array(&vec!["message".to_owned(), chan_name.clone(), msg.clone()], true);
+        
+        let glob_config = glob_config_ref.lock().await;
+        // check if there are clients subscribed to this channel
+        if let Some(clients) = glob_config.subscriptions.get(chan_name) {
+            if tx.send(transmission.as_bytes().to_vec()).is_err() {
+                panic!("could not broadcast the publisher's msg");
             }
+            println!("published: {}", transmission);
+            return encode_int(clients.len()); 
+        }
 
-            return encode_int(0);
+        return encode_int(0);
     }
 
     pub async fn cmd_exec(
@@ -1155,7 +1164,7 @@ pub mod methods {
                         return vec![cmd_sub(glob_config, config_args, cmd_args).await.as_bytes().to_owned()]
                     },
                     "PUBLISH" => {
-                        return vec![cmd_pub(config_args, cmd_args, glob_config.clone()).await.as_bytes().to_owned()]
+                        return vec![cmd_pub(config_args, cmd_args, glob_config.clone(), tx.clone()).await.as_bytes().to_owned()]
                     },
                     "QUIT" => {
                         unimplemented!();

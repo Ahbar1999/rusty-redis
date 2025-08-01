@@ -102,7 +102,7 @@ pub mod utils {
         pub pending_cmds: Vec<Vec<(usize, Vec<String>)>>,
 
         #[clap(skip)]
-        pub subbed_chans: HashMap<String, ()>,
+        pub subbed_chans: HashMap<Vec<u8>, ()>,
 
         // if this is a client and it is in sub mode 
         #[clap(skip)]

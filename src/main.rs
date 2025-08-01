@@ -178,7 +178,6 @@ async fn conn(mut _stream: TcpStream,
     let mut output: Vec<Vec<u8>> = Vec::new();
 
     loop {
-       
         // 0s are needed to mark end of cmds 
         input_buf.fill(0);
         select! {
@@ -202,29 +201,36 @@ async fn conn(mut _stream: TcpStream,
                 }
             },
             msg = rx.recv() => {
+                let mut flag = false;
                 output = vec![msg.unwrap()];
-
-                if output[0].starts_with("message".as_bytes()) {
-                    let this_chan =  &(parse_array(0, &output[0]).1)[1];
-
-                    // if this client is not subbed to this channel continue 
-                    if config_args.subbed_chans.iter().any(|(chan, _)| chan == this_chan) {
-                        break;
+                // check if its an encoded message recvd from a publisher
+                if output[0].starts_with("*3\r\n$7\r\nmessage".as_bytes()) {
+                    //  if this client is not subbed to this channel continue 
+                    if config_args.subbed_chans.iter().any(|(chan, _)| 
+                        {
+                            for i in 0..(output[0].len() - chan.len()) {
+                                // println!("{:?} {:?} {}", chan, &output[0][i..(i + chan.len())], chan == &output[0][i..(i +chan.len())]);
+                                // pbas(chan);
+                                // pbas(&output[0][i..(i + chan.len() + 1)].to_vec());
+                                if chan == &output[0][i..(i +chan.len())] {
+                                    return true;
+                                }
+                            }
+                            return false;
+                        }
+                    ) {
+                        flag = true; 
                     }
                 }
 
-                if !config_args.replica_conn {  
+                if !flag && !config_args.replica_conn {  
                     output.clear();
-                    // if this is not a replica connection then ignore replicated command or if it is but the this is not a message transmission 
                     continue;
                 }
                 // print!("recvd on rx: ");
                 // pbas(&output[0]);
             }
         }
-
-
-
 
         if output.is_empty() {  // only parse input_buf if commands recvd over client
             let mut flag = false;   // for detecting if last issued command was exec
