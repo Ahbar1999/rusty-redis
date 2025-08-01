@@ -942,7 +942,7 @@ pub mod methods {
         encode_array(&result, true)
     }
 
-    pub async fn cmd_pub(_: &Args, 
+    pub async fn cmd_pub(config_args: &mut Args, 
         cmd_args: &Vec<String>, 
         glob_config_ref: Arc<Mutex<GlobConfig>>,
         tx: broadcast::Sender<Vec<u8>>) -> String {
@@ -950,7 +950,8 @@ pub mod methods {
         let chan_name = &cmd_args[1];
         let msg = &cmd_args[2];
         let transmission = encode_array(&vec!["message".to_owned(), chan_name.clone(), msg.clone()], true);
-        
+        // config_args.subbed_chans.insert(chan_name.as_bytes(), ()); 
+
         let glob_config = glob_config_ref.lock().await;
         // check if there are clients subscribed to this channel
         if let Some(clients) = glob_config.subscriptions.get(chan_name) {

@@ -205,18 +205,22 @@ async fn conn(mut _stream: TcpStream,
                 output = vec![msg.unwrap()];
                 // check if its an encoded message recvd from a publisher
                 if output[0].starts_with("*3\r\n$7\r\nmessage".as_bytes()) {
+                    let (_, contents) = parse_array(0, &output[0]);
                     //  if this client is not subbed to this channel continue 
                     if config_args.subbed_chans.iter().any(|(chan, _)| 
                         {
-                            for i in 0..(output[0].len() - chan.len()) {
-                                // println!("{:?} {:?} {}", chan, &output[0][i..(i + chan.len())], chan == &output[0][i..(i +chan.len())]);
-                                // pbas(chan);
-                                // pbas(&output[0][i..(i + chan.len() + 1)].to_vec());
-                                if chan == &output[0][i..(i +chan.len())] {
-                                    return true;
-                                }
-                            }
-                            return false;
+                            // contents = {"message", <channel name>, <msg content>}
+                            return chan == contents[1].as_bytes();
+                            // for i in 0..(output[0].len() - chan.len()) {
+                            //     // println!("{:?} {:?} {}", chan, &output[0][i..(i + chan.len())], chan == &output[0][i..(i +chan.len())]);
+                            //     // pbas(chan);
+                            //     // pbas(&output[0][i..(i + chan.len() + 1)].to_vec());
+                            //     if chan == &output[0][i..(i +chan.len())] {
+                            //         // println!("found a match");
+                            //         return true;
+                            //     }
+                            // }
+                            // return false;
                         }
                     ) {
                         flag = true; 
