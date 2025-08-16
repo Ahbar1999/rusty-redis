@@ -1010,6 +1010,32 @@ pub mod methods {
         return encode_int(ans);
     }
 
+    pub async fn cmd_zrange(
+        _: &Args,
+        cmd_args: &Vec<String>,
+        sorted_set_ref: Arc<Mutex<HashMap<String, SortedSet>>>
+    ) -> String {
+        let set_name = &cmd_args[1];
+        // let score = SortableF64(cmd_args[1].parse::<f64>().unwrap());
+        let start: usize = cmd_args[2].parse().unwrap();
+        let end: usize = cmd_args[3].parse().unwrap();
+
+        let sorted_set = sorted_set_ref.lock().await;
+
+        let mut result = vec![];
+        if let Some(set) = sorted_set.get(set_name) {
+            let mut i =0;
+            for (_, this_key) in set.st.iter() {
+                if start <= i && i <= end {
+                    result.push(this_key.clone());
+                }
+                i += 1; 
+            }
+        }
+
+        encode_array(&result, true)
+    }
+
     pub async fn cmd_zrank(
         _: &Args,
         cmd_args: &Vec<String>,
@@ -1255,6 +1281,9 @@ pub mod methods {
                     "ZRANK" => {
                         vec![cmd_zrank(config_args, cmd_args, sorted_set_ref.clone()).await.as_bytes().to_owned()] 
                     },
+                    "ZRANGE" => {
+                        vec![cmd_zrange(config_args, cmd_args, sorted_set_ref.clone()).await.as_bytes().to_owned()]
+                    }
                     _ => {
                         vec![]
                         // unimplemented!("Unidentified command");
