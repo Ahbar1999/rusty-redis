@@ -2,10 +2,8 @@ pub mod methods {
     // this module contains all the redist command methods
 
     use core::panic;
-    use std::collections::{BTreeMap, HashSet, VecDeque};
-    use std::hash::Hash;
+    use std::collections::{HashSet, VecDeque};
     use std::io::ErrorKind;
-    use std::mem::uninitialized;
     use std::sync::Arc;
     use std::{collections::HashMap, ops::BitAnd, time::{Duration, SystemTime, UNIX_EPOCH}, vec};
     use bytes::BufMut;
@@ -998,14 +996,48 @@ pub mod methods {
         let key = &cmd_args[3];
 
         let set = sorted_set.entry(set_name.clone()).or_default();
-        let mut ans= 0; 
-        if set.map1.insert(key.clone(), *score).is_none() {
-            ans = 1;    // new key was inserted in this set
+        let mut ans= 1; 
+        
+        if let Some(old_score) =set.kv.insert(key.clone(), *score) {    // insert updated entry in hash map
+            set.st.remove(&(old_score, key.clone()));
+
+            ans = 0;    // new key was inserted in this set
         }
 
-        set.map2.insert(set.map1.get(key).unwrap().clone(), key.clone());
+        // insert updated version in the ordered set 
+        set.st.insert((score.clone(), key.clone()));
 
         return encode_int(ans);
+    }
+
+    pub async fn cmd_zrank(
+        _: &Args,
+        cmd_args: &Vec<String>,
+        sorted_set_ref: Arc<Mutex<HashMap<String, SortedSet>>>
+    ) -> String {
+        let set_name = &cmd_args[1];
+        // let score = SortableF64(cmd_args[1].parse::<f64>().unwrap());
+        let key = &cmd_args[2];
+
+        let sorted_set = sorted_set_ref.lock().await;
+
+        let mut rank: isize = -1;
+        if let Some(set) = sorted_set.get(set_name) {
+            if let Some(score) = set.kv.get(key) {
+                for (this_score, this_key) in set.st.iter() {
+                    rank += 1;
+                    if this_key == key && this_score == score {
+                        break;
+                    }
+                }
+            }
+        }
+
+        if rank == -1 { 
+            return encode_bulk("");
+        }
+        // else  
+        encode_int(rank as usize) 
     }
 
     pub async fn cmd_exec(
@@ -1212,13 +1244,16 @@ pub mod methods {
                         return vec![cmd_pub(config_args, cmd_args, glob_config.clone(), tx.clone()).await.as_bytes().to_owned()]
                     },
                     "UNSUBSCRIBE" => {
-                        return vec![cmd_unsub(config_args, cmd_args, glob_config.clone()).await.as_bytes().to_owned()];
+                        vec![cmd_unsub(config_args, cmd_args, glob_config.clone()).await.as_bytes().to_owned()]
                     },
                     "QUIT" => {
                         unimplemented!();
                     },
                     "ZADD" => {
-                        return vec![cmd_zadd(config_args, cmd_args, sorted_set_ref.clone()).await.as_bytes().to_owned()];
+                        vec![cmd_zadd(config_args, cmd_args, sorted_set_ref.clone()).await.as_bytes().to_owned()]
+                    },
+                    "ZRANK" => {
+                        vec![cmd_zrank(config_args, cmd_args, sorted_set_ref.clone()).await.as_bytes().to_owned()] 
                     },
                     _ => {
                         vec![]

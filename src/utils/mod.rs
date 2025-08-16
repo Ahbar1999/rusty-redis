@@ -1,5 +1,5 @@
 pub mod utils {
-    use std::{cmp::Ordering, collections::{BTreeMap, HashMap, HashSet, VecDeque}, str::FromStr, time::SystemTime};
+    use std::{cmp::Ordering, collections::{BTreeSet, HashMap, HashSet, VecDeque}, time::SystemTime};
     use clap::Parser;
    
     // this module provides frequently used funtions, constants, types
@@ -78,8 +78,9 @@ pub mod utils {
 
     #[derive(Debug, Clone, Default)]
     pub struct SortedSet {
-        pub map1    :HashMap<String, SortableF64>,
-        pub map2    :BTreeMap<SortableF64, String>, 
+        pub kv      :HashMap<String, SortableF64>,
+        // need to change this, we need to support O(1) order find in addition to insert, delete in O(logn) 
+        pub st      :BTreeSet<(SortableF64, String)>, 
     } 
 
     // impl Default for SortedSet {
