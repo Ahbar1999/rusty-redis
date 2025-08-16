@@ -2,8 +2,10 @@ pub mod methods {
     // this module contains all the redist command methods
 
     use core::panic;
-    use std::collections::{HashSet, VecDeque};
+    use std::collections::{BTreeMap, HashSet, VecDeque};
+    use std::hash::Hash;
     use std::io::ErrorKind;
+    use std::mem::uninitialized;
     use std::sync::Arc;
     use std::{collections::HashMap, ops::BitAnd, time::{Duration, SystemTime, UNIX_EPOCH}, vec};
     use bytes::BufMut;
@@ -984,10 +986,33 @@ pub mod methods {
         return encode_array(&vec![encode_bulk("unsubscribe"), encode_bulk(chan_name), encode_int(glob_config.lock().await.subscriptions.get(chan_name).or(Some(&HashSet::new())).unwrap().len())], false); 
     }
 
+    pub async fn cmd_zadd(
+        _: &Args,
+        cmd_args: &Vec<String>,
+        sorted_set_ref: Arc<Mutex<HashMap<String, SortedSet>>>) -> String {
+
+        let mut sorted_set = sorted_set_ref.lock().await;
+        
+        let set_name = &cmd_args[1];
+        let score: &SortableF64 = &SortableF64{0: cmd_args[2].parse::<f64>().unwrap()};
+        let key = &cmd_args[3];
+
+        let set = sorted_set.entry(set_name.clone()).or_default();
+        let mut ans= 0; 
+        if set.map1.insert(key.clone(), *score).is_none() {
+            ans = 1;    // new key was inserted in this set
+        }
+
+        set.map2.insert(set.map1.get(key).unwrap().clone(), key.clone());
+
+        return encode_int(ans);
+    }
+
     pub async fn cmd_exec(
         cmds: &Vec<(usize, Vec<String>)>, 
         config_args: &mut Args,
         storage_ref: Arc<Mutex<HashMap<String, (RDBValue, Option<SystemTime>)>>>,
+        sorted_set_ref: Arc<Mutex<HashMap<String, SortedSet>>>,
         tx: broadcast::Sender<Vec<u8>>,
         glob_config: Arc<Mutex<GlobConfig>>) -> Vec<Vec<u8>> {
 
@@ -1191,7 +1216,10 @@ pub mod methods {
                     },
                     "QUIT" => {
                         unimplemented!();
-                    }
+                    },
+                    "ZADD" => {
+                        return vec![cmd_zadd(config_args, cmd_args, sorted_set_ref.clone()).await.as_bytes().to_owned()];
+                    },
                     _ => {
                         vec![]
                         // unimplemented!("Unidentified command");

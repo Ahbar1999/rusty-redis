@@ -1,5 +1,5 @@
 pub mod utils {
-    use std::{collections::{HashMap, HashSet, VecDeque}, time::SystemTime};
+    use std::{cmp::Ordering, collections::{BTreeMap, HashMap, HashSet, VecDeque}, str::FromStr, time::SystemTime};
     use clap::Parser;
    
     // this module provides frequently used funtions, constants, types
@@ -58,6 +58,35 @@ pub mod utils {
         pub value   :RDBValue, 
         pub exp_ts  :Option<SystemTime>,
     }
+
+    #[derive(Debug, Clone, Copy, PartialEq)]
+    pub struct SortableF64(pub f64);
+
+    impl Eq for SortableF64 {}
+
+    impl PartialOrd for SortableF64 {
+        fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+            self.0.partial_cmp(&other.0)
+        }
+    }
+    
+    impl Ord for SortableF64 {
+        fn cmp(&self, other: &Self) -> Ordering {
+            self.0.total_cmp(&other.0)
+        }
+    } 
+
+    #[derive(Debug, Clone, Default)]
+    pub struct SortedSet {
+        pub map1    :HashMap<String, SortableF64>,
+        pub map2    :BTreeMap<SortableF64, String>, 
+    } 
+
+    // impl Default for SortedSet {
+    //     fn default() -> Self {
+    //         SortedSet{ map1: HashMap::new(), map2: BTreeMap::new() }
+    //     }
+    // }
 
     // for parsing command line args
     #[derive(Parser, Debug, Clone)]

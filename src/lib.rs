@@ -1,4 +1,4 @@
-use std::{collections::{HashMap, HashSet}, io::ErrorKind, sync::Arc, time::SystemTime, vec};
+use std::{collections::{BTreeMap, HashMap, HashSet}, io::ErrorKind, sync::Arc, time::SystemTime, vec};
 use clap::Parser;
 use tokio::{io::{AsyncReadExt, AsyncWriteExt}, net::{TcpListener, TcpStream}, select, sync::{broadcast, Mutex}};
 use crate::utils::utils::*;
@@ -13,9 +13,11 @@ pub mod utils;
 // bytes of the following commands need to be counted by the slave: PING, REPLCONF, SET
 
 #[tokio::main]
-pub async fn redis_cli() {
+pub async fn redis_cli<I: Iterator<Item=String>>(argv: I) {
     // parse command line arguments
-    let mut config_args = Args::parse();
+    // let mut config_args = Args::parse();
+    let mut config_args = Args::parse_from(argv);
+
     if config_args.replicaof.starts_with("None") {
         config_args.master_replid = String::from("8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb");
         config_args.master_repl_offset = 0;
@@ -41,7 +43,9 @@ pub async fn redis_cli() {
 async fn slave_conn(listener :TcpListener, config_args: Args) {
     println!("is a slave");
 
-    let _db: Arc<Mutex<HashMap<String, (RDBValue, Option<SystemTime>)>>>  = Arc::new(Mutex::new(HashMap::new())); 
+    let _db: Arc<Mutex<HashMap<String, (RDBValue, Option<SystemTime>)>>>  = Arc::new(Mutex::new(HashMap::new()));
+    let _sorted_set: Arc<Mutex<HashMap<String, SortedSet>>> = Arc::new(Mutex::new(HashMap::new()));
+       
     // handshake stage
     let mut input_buf: Vec<u8> = vec![0; 1024];
     let (master_addr, master_port) = config_args.replicaof.split_once(' ').unwrap();
@@ -87,19 +91,21 @@ async fn slave_conn(listener :TcpListener, config_args: Args) {
 
     let (tx, _) = broadcast::channel::<Vec<u8>>(1024);
     let db_ref = _db.clone();
+    let _sorted_set_ref = _sorted_set.clone();
     let args_copy = config_args.clone();
     let tx1 = tx.clone();
     let rx1 = tx.subscribe();
     let glob_config_ref_copy = glob_config_ref.clone();
     tokio::spawn(async move {
         println!("lauching conn for slave-master");
-        conn(master_stream, args_copy, db_ref, tx1, rx1, glob_config_ref_copy).await;
+        conn(master_stream, args_copy, db_ref, _sorted_set_ref, tx1, rx1, glob_config_ref_copy).await;
     });
 
     loop {
         // listen for client connections
         let (stream, sockaddr)  = listener.accept().await.unwrap();
         let db_ref = _db.clone();
+        let _sorted_set_ref = _sorted_set.clone();
         let mut args_copy = config_args.clone();
         args_copy.other_port = sockaddr.port();
         let glob_config_ref_copy = glob_config_ref.clone();
@@ -108,7 +114,7 @@ async fn slave_conn(listener :TcpListener, config_args: Args) {
         let rx1 = tx.subscribe();
         tokio::spawn(async move {
             // println!("lauching conn for slave-master");
-            conn(stream, args_copy, db_ref, tx1, rx1, glob_config_ref_copy).await;
+            conn(stream, args_copy, db_ref, _sorted_set_ref ,tx1, rx1, glob_config_ref_copy).await;
         });
     }
 }
@@ -116,6 +122,7 @@ async fn slave_conn(listener :TcpListener, config_args: Args) {
 async fn master_conn(listener :TcpListener, config_args: Args) {
     // println!("master connection");
     let _db: Arc<Mutex<HashMap<String, (RDBValue, Option<SystemTime>)>>>  = Arc::new(Mutex::new(HashMap::new()));
+    let _sorted_set = Arc::new(Mutex::new(HashMap::new()));
 
 
     let master_config_ref = Arc::new(Mutex::new(GlobConfig{ 
@@ -143,6 +150,7 @@ async fn master_conn(listener :TcpListener, config_args: Args) {
        
         // let new_shared_config_args = shared_config_args.clone();
         let db_ref = _db.clone();
+        let _sorted_set_ref = _sorted_set.clone();
         let master_config_ref_copy = master_config_ref.clone();
         
         // slave will probably not communicate among its connections 
@@ -156,6 +164,7 @@ async fn master_conn(listener :TcpListener, config_args: Args) {
             conn(stream, 
                 args_copy, 
                 db_ref, 
+                _sorted_set_ref,
                 tx1, 
                 rx1, master_config_ref_copy).await;
         });
@@ -166,6 +175,7 @@ async fn master_conn(listener :TcpListener, config_args: Args) {
 async fn conn(mut _stream: TcpStream, 
     mut config_args: Args, 
     storage_ref: Arc<Mutex<HashMap<String, (RDBValue, Option<SystemTime>)>>>,
+    sorted_set_ref: Arc<Mutex<HashMap<String, SortedSet>>>,
     tx: broadcast::Sender<Vec<u8>>,
     mut rx:  broadcast::Receiver<Vec<u8>>,
     glob_config: Arc<Mutex<GlobConfig>>) { 
@@ -250,6 +260,7 @@ async fn conn(mut _stream: TcpStream,
                     output = cmd_exec(&cmds,
                         &mut config_args,
                         storage_ref.clone(),
+                        sorted_set_ref.clone(),
                         tx.clone(),
                         glob_config.clone()).await;
 
