@@ -1017,13 +1017,22 @@ pub mod methods {
     ) -> String {
         let set_name = &cmd_args[1];
         // let score = SortableF64(cmd_args[1].parse::<f64>().unwrap());
-        let start: usize = cmd_args[2].parse().unwrap();
-        let end: usize = cmd_args[3].parse().unwrap();
+        let mut start: isize = cmd_args[2].parse::<isize>().unwrap();
+        let mut end: isize = cmd_args[3].parse::<isize>().unwrap(); 
 
         let sorted_set = sorted_set_ref.lock().await;
 
         let mut result = vec![];
         if let Some(set) = sorted_set.get(set_name) {
+            let sz: isize = set.st.len() as isize;
+            if start < 0 {
+                start = std::cmp::max(0, sz + start);
+            } 
+
+            if end < 0 {
+                end = std::cmp::min(sz - 1, sz + end);
+            }
+
             let mut i =0;
             for (_, this_key) in set.st.iter() {
                 if start <= i && i <= end {
@@ -1283,7 +1292,7 @@ pub mod methods {
                     },
                     "ZRANGE" => {
                         vec![cmd_zrange(config_args, cmd_args, sorted_set_ref.clone()).await.as_bytes().to_owned()]
-                    }
+                    },
                     _ => {
                         vec![]
                         // unimplemented!("Unidentified command");
