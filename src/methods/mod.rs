@@ -1075,6 +1075,61 @@ pub mod methods {
         encode_int(rank as usize) 
     }
 
+    pub async fn cmd_zcard(
+        _: &Args,
+        cmd_args: &Vec<String>,
+        sorted_set_ref: Arc<Mutex<HashMap<String, SortedSet>>>) -> String {
+
+        let set_name = &cmd_args[1]; 
+
+        let size;
+        if let Some(set) = sorted_set_ref.lock().await.get(set_name) {
+            size = set.st.len();
+        } else {
+            size =0;
+        }
+    
+        encode_int(size) 
+    }
+
+    pub async fn cmd_zscore(
+        _: &Args,
+        cmd_args: &Vec<String>,
+        sorted_set_ref: Arc<Mutex<HashMap<String, SortedSet>>>) -> String {
+        
+        let set_name = &cmd_args[1]; 
+        let member = &cmd_args[2];
+
+        if let Some(set) = sorted_set_ref.lock().await.get(set_name) {
+            if let Some(score) = set.kv.get(member) {
+                return encode_bulk(score.0.to_string().as_str());
+            }
+        }
+
+        encode_bulk("")  
+    }
+
+    pub async fn cmd_zrem(
+        _: &Args,
+        cmd_args: &Vec<String>,
+        sorted_set_ref: Arc<Mutex<HashMap<String, SortedSet>>>) -> String {
+            
+        let set_name = &cmd_args[1];
+        let member = &cmd_args[2];
+        
+        if let Some(set) = sorted_set_ref.lock().await.get_mut(set_name) {
+            if let Some(&score) = set.kv.get(member) {
+                set.kv.remove(member.as_str());
+                set.st.remove(&(score.clone(), set_name.clone()));
+
+                return encode_int(1);
+            }
+        }
+
+        // no elements were deleted because either the set doesnt exist or the member doesnt exist 
+        encode_int(0)
+    }
+
     pub async fn cmd_exec(
         cmds: &Vec<(usize, Vec<String>)>, 
         config_args: &mut Args,
@@ -1292,6 +1347,9 @@ pub mod methods {
                     },
                     "ZRANGE" => {
                         vec![cmd_zrange(config_args, cmd_args, sorted_set_ref.clone()).await.as_bytes().to_owned()]
+                    },
+                    "ZCARD" => {
+                        vec![cmd_zcard(config_args, cmd_args, sorted_set_ref.clone()).await.as_bytes().to_owned()]
                     },
                     _ => {
                         vec![]

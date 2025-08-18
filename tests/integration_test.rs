@@ -15,7 +15,8 @@ fn test_ping() {
     let mut stream = TcpStream::connect("localhost:6380").unwrap();
 
     if stream.write_all("*1\r\n$4\r\nPING\r\n".as_bytes()).is_err() {
-        println!("couldnt send PING to the server!, exiting.");
+        println!("couldn't PING the server!, exiting.");
+        assert!(false);
         exit(1);
     }
 
