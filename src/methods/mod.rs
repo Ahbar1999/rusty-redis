@@ -1120,7 +1120,7 @@ pub mod methods {
         if let Some(set) = sorted_set_ref.lock().await.get_mut(set_name) {
             if let Some(&score) = set.kv.get(member) {
                 set.kv.remove(member.as_str());
-                set.st.remove(&(score.clone(), set_name.clone()));
+                set.st.remove(&(score.clone(), member.clone()));
 
                 return encode_int(1);
             }
