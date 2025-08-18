@@ -20,9 +20,7 @@ fn test_ping() {
         exit(1);
     }
 
-    // Create a buffer to receive data
     let mut buffer = vec![0; 1024]; 
-    // Read data from the server into the buffer
     let bytes_read = stream.read(&mut buffer).unwrap(); 
    
     assert!(&buffer[0..bytes_read] == "+PONG\r\n".as_bytes()); 
