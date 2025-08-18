@@ -1351,6 +1351,12 @@ pub mod methods {
                     "ZCARD" => {
                         vec![cmd_zcard(config_args, cmd_args, sorted_set_ref.clone()).await.as_bytes().to_owned()]
                     },
+                    "ZSCORE" => {
+                        vec![cmd_zscore(config_args, cmd_args, sorted_set_ref.clone()).await.as_bytes().to_owned()]
+                    },
+                    "ZREM" => {
+                        vec![cmd_zrem(config_args, cmd_args, sorted_set_ref.clone()).await.as_bytes().to_owned()]
+                    }
                     _ => {
                         vec![]
                         // unimplemented!("Unidentified command");
