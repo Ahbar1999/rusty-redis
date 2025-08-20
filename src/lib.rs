@@ -87,6 +87,7 @@ async fn slave_conn(listener :TcpListener, config_args: Args) {
         replicas: HashMap::new(),
         blocked_clients: HashMap::new(),
         subscriptions: HashMap::new(),
+        users: HashMap::new(), 
     }));
 
     let (tx, _) = broadcast::channel::<Vec<u8>>(1024);
@@ -129,6 +130,7 @@ async fn master_conn(listener :TcpListener, config_args: Args) {
         replicas: HashMap::new(),
         blocked_clients: HashMap::new(),
         subscriptions: HashMap::new(),
+        users: HashMap::new(),
     }));
     
     if !config_args.dir.starts_with("UNSET") { 

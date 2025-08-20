@@ -89,6 +89,13 @@ pub mod utils {
     //     }
     // }
 
+    // #[derive(Debug, Clone, Default)]
+    // pub struct AUTH_INFO {
+    //     pub username: String,
+    //     pub password: String,
+    //     pub allowed_commands: Vec<String>,
+    // }
+
     // for parsing command line args
     #[derive(Parser, Debug, Clone)]
     pub struct Args {
@@ -116,6 +123,10 @@ pub mod utils {
         
         #[arg(long, default_value_t=String::from("None"))]
         pub master_replid: String,
+
+        // acl authentication
+        // #[clap(skip)] 
+        // pub user_auth: AUTH_INFO, 
         
         // number of bytes processed by this instance
         #[clap(skip)]
@@ -146,7 +157,8 @@ pub mod utils {
     pub struct GlobConfig {
         pub replicas: HashMap::<u16, ReplicaInfo>,
         pub blocked_clients: HashMap<String, VecDeque<u16>>,
-        pub subscriptions: HashMap<String, HashSet<u16>>, 
+        pub subscriptions: HashMap<String, HashSet<u16>>,
+        pub users: HashMap<(String, String), Vec<String>>, 
     }
 
     pub const DELIM: u8 = b'\r';

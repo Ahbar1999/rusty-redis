@@ -1,5 +1,8 @@
+
+// this module contains all the redist command methods
 pub mod methods {
-    // this module contains all the redist command methods
+    // submodule for auth methods(module tree is scuffed, need fixing i think)
+    pub mod auth;
 
     use core::panic;
     use std::collections::{HashSet, VecDeque};
@@ -1356,7 +1359,17 @@ pub mod methods {
                     },
                     "ZREM" => {
                         vec![cmd_zrem(config_args, cmd_args, sorted_set_ref.clone()).await.as_bytes().to_owned()]
-                    }
+                    },
+                    "ACL" => {
+                        match cmd_args[1].to_ascii_uppercase().as_str() {
+                            "LIST" => {
+                                vec![auth::auth::cmd_list().as_bytes().to_owned()] 
+                            },
+                            _ => {
+                                panic!("unidentified ACL command!");
+                            }
+                        }
+                    },
                     _ => {
                         vec![]
                         // unimplemented!("Unidentified command");
