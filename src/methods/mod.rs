@@ -680,7 +680,7 @@ pub mod methods {
         } 
 
         if final_result.is_empty() {
-            return encode_bulk("");
+            return "*-1\r\n".to_owned();
         }    
         encode_array(&final_result, false)
     }
@@ -903,8 +903,11 @@ pub mod methods {
                     // remove this client from the queue
                     // we could use a hashmap to make insert and removals O(1) 
                     glob_config.lock().await.blocked_clients.get_mut(&cmd_args[1]).unwrap().retain(|ele| *ele != config_args.other_port);
-                   
-                    return encode_bulk("");
+
+                    // we need to return null array but apparently i havent implemented it yet
+                    return "*-1\r\n".to_owned(); 
+                    // return encode_array(&vec!["".to_owned()], true);
+                    // return encode_bulk("");
                 },
 
                 data = rx.recv() => {
@@ -999,18 +1002,19 @@ pub mod methods {
         let key = &cmd_args[3];
 
         let set = sorted_set.entry(set_name.clone()).or_default();
-        let mut ans= 1; 
+        // let ans = set.insert(key, score, key);
+        // let mut ans= 1; 
         
-        if let Some(old_score) =set.kv.insert(key.clone(), *score) {    // insert updated entry in hash map
-            set.st.remove(&(old_score, key.clone()));
+        // if let Some(old_score) =set.kv.insert(key.clone(), *score) {    // insert updated entry in hash map
+        //     set.st.remove(&(old_score, key.clone()));
 
-            ans = 0;    // new key was inserted in this set
-        }
+        //     ans = 0;    // new key was inserted in this set
+        // }
 
-        // insert updated version in the ordered set 
-        set.st.insert((score.clone(), key.clone()));
+        // // insert updated version in the ordered set 
+        // set.st.insert((score.clone(), key.clone()));
 
-        return encode_int(ans);
+        encode_int(set.insert(key, score, key))
     }
 
     pub async fn cmd_zrange(
@@ -1131,6 +1135,41 @@ pub mod methods {
 
         // no elements were deleted because either the set doesnt exist or the member doesnt exist 
         encode_int(0)
+    }
+
+    pub async fn cmd_geoadd(
+        _: &Args,
+        cmd_args: &Vec<String>,
+        sorted_set_ref: Arc<Mutex<HashMap<String, SortedSet>>>) -> String {
+        
+        // args format: [_, key, long, lat, member]
+        let GEO_SET_NAME = String::from("GEO"); // all the geolocation entries belong to the GEO set 
+        let key = &cmd_args[1];
+
+        let value = GEOlocation{
+            member: cmd_args[4].clone(),
+            lat: SortableF64(cmd_args[3].clone().parse().unwrap()),  
+            long: SortableF64(cmd_args[2].clone().parse().unwrap()),
+        };
+
+        let mut sorted_set = sorted_set_ref.lock().await;
+        
+        let set = sorted_set.entry(GEO_SET_NAME.clone()).or_default();
+        // let mut ans= 1;
+
+        // // todo!("calculate score from coords");
+        // let score = &SortableF64(0.0); 
+        
+        // if let Some(old_score) =set.kv.insert(key.clone(), *score) {    // insert updated entry in hash map
+        //     set.st.remove(&(old_score, key.clone()));
+
+        //     ans = 0;    // new key was inserted in this set
+        // }
+
+        // // insert updated version in the ordered set 
+        // set.st.insert((score.clone(), serde_json::to_string(&value).unwrap()));
+
+        encode_int(set.insert(key, &SortableF64(0.0), &serde_json::to_string(&value).unwrap()))
     }
 
     pub async fn cmd_exec(
@@ -1360,10 +1399,14 @@ pub mod methods {
                     "ZREM" => {
                         vec![cmd_zrem(config_args, cmd_args, sorted_set_ref.clone()).await.as_bytes().to_owned()]
                     },
+                    "GEOADD" => {
+                        vec![cmd_geoadd(config_args, cmd_args, sorted_set_ref.clone()).await.as_bytes().to_owned()]
+                    },
                     "ACL" => {
                         match cmd_args[1].to_ascii_uppercase().as_str() {
                             "LIST" => {
-                                vec![auth::auth::cmd_list().as_bytes().to_owned()] 
+                                unreachable!("you should not be here");
+                                // vec![auth::auth::cmd_list(cmds, glob_config.clone()).as_bytes().to_owned()] 
                             },
                             _ => {
                                 panic!("unidentified ACL command!");

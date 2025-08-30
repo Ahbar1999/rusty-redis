@@ -1,6 +1,7 @@
 pub mod utils {
     use std::{cmp::Ordering, collections::{BTreeSet, HashMap, HashSet, VecDeque}, time::SystemTime};
     use clap::Parser;
+    use serde::{Deserialize, Serialize};
    
     // this module provides frequently used funtions, constants, types
 
@@ -59,7 +60,7 @@ pub mod utils {
         pub exp_ts  :Option<SystemTime>,
     }
 
-    #[derive(Debug, Clone, Copy, PartialEq)]
+    #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
     pub struct SortableF64(pub f64);
 
     impl Eq for SortableF64 {}
@@ -75,13 +76,40 @@ pub mod utils {
             self.0.total_cmp(&other.0)
         }
     } 
+    
+
+    #[derive(Serialize, Deserialize)]
+    pub struct GEOlocation {
+        pub lat:    SortableF64,
+        pub long:   SortableF64,
+        pub member: String 
+    }
 
     #[derive(Debug, Clone, Default)]
     pub struct SortedSet {
+        // SortableF64 represents score value
         pub kv      :HashMap<String, SortableF64>,
-        // need to change this, we need to support O(1) order find in addition to insert, delete in O(logn) 
-        pub st      :BTreeSet<(SortableF64, String)>, 
+        // need to change this, we need to support O(1) order find in addition to insert, delete in O(logn)
+        pub st      :BTreeSet<(SortableF64, String)>,
     } 
+
+    impl SortedSet {
+        pub fn insert(&mut self, key: &String, score: &SortableF64, value: &String) -> usize {
+            let mut ans= 1;
+            
+            if let Some(old_score) = self.kv.insert(key.clone(), *score) {    // insert updated entry in hash map
+                self.st.remove(&(old_score, key.clone()));
+
+                ans = 0;    // new key was inserted in this set
+            }
+
+            // insert updated version in the ordered set 
+            self.st.insert((score.clone(), value.clone()));
+
+            // return number of new elements inserted
+            ans 
+        }
+    }
 
     // impl Default for SortedSet {
     //     fn default() -> Self {
@@ -195,7 +223,7 @@ pub mod utils {
     }
 
     pub fn encode_array(vals: &Vec<String>, raw: bool) -> String {
-
+         
         let mut output = format!("*{}\r\n", vals.len());
         for v in vals {
             // if v == "" {
