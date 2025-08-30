@@ -14,22 +14,11 @@ pub mod sorted_sets {
         
         let set_name = &cmd_args[1];
         let score: &SortableF64 = &SortableF64{0: cmd_args[2].parse::<f64>().unwrap()};
-        let key = &cmd_args[3];
+        let value = &cmd_args[3];
 
         let set = sorted_set.entry(set_name.clone()).or_default();
-        // let ans = set.insert(key, score, key);
-        // let mut ans= 1; 
-        
-        // if let Some(old_score) =set.kv.insert(key.clone(), *score) {    // insert updated entry in hash map
-        //     set.st.remove(&(old_score, key.clone()));
 
-        //     ans = 0;    // new key was inserted in this set
-        // }
-
-        // // insert updated version in the ordered set 
-        // set.st.insert((score.clone(), key.clone()));
-
-        encode_int(set.insert(key, score, key))
+        encode_int(set.insert(value, score, value))
     }
 
     pub async fn cmd_zrange(

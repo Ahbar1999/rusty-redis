@@ -11,7 +11,7 @@ pub mod geospatial {
         sorted_set_ref: Arc<Mutex<HashMap<String, SortedSet>>>) -> String {
         
         // args format: [_, key, long, lat, member]
-        let GEO_SET_NAME = String::from("GEO"); // all the geolocation entries belong to the GEO set 
+        // let GEO_SET_NAME = String::from("GEO"); // all the geolocation entries belong to the GEO set 
         let key = &cmd_args[1];
 
         let value = GEOlocation{
@@ -29,8 +29,12 @@ pub mod geospatial {
 
         let mut sorted_set = sorted_set_ref.lock().await;
         
-        let set = sorted_set.entry(GEO_SET_NAME.clone()).or_default();
+        let set = sorted_set.entry(key.clone()).or_default();
+        // let serialized_value = &serde_json::to_string(&value).unwrap();
 
-        encode_int(set.insert(key, &SortableF64(0.0), &serde_json::to_string(&value).unwrap()))
+        // for now 
+        // dont store coords
+        // score is hardcoded to 0.0
+        encode_int(set.insert(&value.member, &SortableF64(0.0), &value.member))
     }
 }
