@@ -12,7 +12,7 @@ pub mod geospatial {
         
         // args format: [_, key, long, lat, member]
         // let GEO_SET_NAME = String::from("GEO"); // all the geolocation entries belong to the GEO set 
-        let key = &cmd_args[1];
+        let key = &cmd_args[1]; // set name
 
         let value = GEOlocation{
             member: cmd_args[4].clone(),
@@ -35,6 +35,6 @@ pub mod geospatial {
         // for now 
         // dont store coords
         // score is hardcoded to 0.0
-        encode_int(set.insert(&value.member, &SortableF64(0.0), &value.member))
+        encode_int(set.insert(&value.member, &SortableF64(geo_encode(value.lat.0, value.long.0) as f64), &value.member))
     }
 }
