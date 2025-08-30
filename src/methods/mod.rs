@@ -3,6 +3,12 @@
 pub mod methods {
     // submodule for auth methods(module tree is scuffed, need fixing i think)
     pub mod auth;
+    pub mod lists;
+    pub mod pub_sub;
+    pub mod geospatial;
+    pub mod sorted_sets;
+    pub mod streams;
+    pub mod transactions;
 
     use core::panic;
     use std::collections::{HashSet, VecDeque};
@@ -412,279 +418,6 @@ pub mod methods {
         encode_int(res)
     }
 
-    pub async fn cmd_xadd(
-        cmd_args: &Vec<String>, 
-        storage_ref: Arc<Mutex<HashMap<String, (RDBValue, Option<SystemTime>)>>>,
-        tx: broadcast::Sender<Vec<u8>>) -> String {
-        let mut new_kv = StorageKV {
-            key: cmd_args[1].clone(),
-            value: RDBValue::Stream(vec![StreamEntry{
-                id: {
-                    // '*' part will be replaced with usize::MAX
-                    if cmd_args[2] == "*" {
-                        (usize::MAX, usize::MAX)
-                    }  else {
-                        let id_parts = cmd_args[2].split_once('-').unwrap();
-                        if id_parts.1 == "*" {
-                            (usize::from_str_radix(id_parts.0, 10).unwrap(), usize::MAX)
-                        } else {
-                            (usize::from_str_radix(id_parts.0, 10).unwrap(), usize::from_str_radix(id_parts.1, 10).unwrap())
-                        }
-                    } 
-                },
-                value: {
-                    let mut kv_pairs = vec![];
-                    for i in 3..cmd_args.len() -1 {
-                        kv_pairs.push((cmd_args[i].clone(), cmd_args[i + 1].clone()));
-                    }
-                    kv_pairs
-                },
-            }]), 
-            exp_ts: None,
-        };
-
-        // stream data doesnt support time yet 
-        // if cmd_args.len() > 3 { // input validation is not being performed
-        //     // SET foo bar px milliseconds
-        //     let n = cmd_args[4].parse().unwrap();
-        //     new_kv.exp_ts = SystemTime::now().checked_add(Duration::from_millis(n));
-        // }
-        // println!("inserting into stream: {:?}", new_kv);
-        // id validation
-        match &new_kv.value {
-            RDBValue::Stream(new_value_vec) => {
-                if new_value_vec[0].id == (0, 0) {
-                    return redis_err(_ERROR_STREAM_NULL_ID_);
-                }
-            },
-            _ => {
-                panic!("invalid data type found in cmdxadd");
-            } 
-        }
-
-        let mut db_data= storage_ref.lock().await;
-        let result;
-
-        match db_data.get_mut(&new_kv.key) {
-            Some((value, _)) => {
-                match value {
-                    RDBValue::Stream(value_vec) => {
-                        match new_kv.value {
-                            RDBValue::Stream(mut new_value_vec) => {
-                                let prev_id = value_vec.iter().next_back().unwrap().id;
-                                if  prev_id >= new_value_vec[0].id {
-                                    return redis_err(_ERROR_STREAM_GEQ_ID_EXISTS_);
-                                }
-                                if new_value_vec[0].id.0 == usize::MAX {
-                                    new_value_vec[0].id.0 = prev_id.0 + 1;
-                                }
-                                if new_value_vec[0].id.1 == usize::MAX {
-                                    if prev_id.0 == new_value_vec[0].id.0 { // if first part matches with previous element's id 
-                                        new_value_vec[0].id.1 = prev_id.1 + 1;
-                                    } else {
-                                        new_value_vec[0].id.1 = 0 + (new_value_vec[0].id.0 == 0) as usize;
-                                    }
-                                }
-                                value_vec.push(new_value_vec[0].to_owned());
-
-                                result = format!("{}-{}", new_value_vec[0].id.0, new_value_vec[0].id.1);
-                            },
-                            _ => {
-                                unimplemented!("inconsistent data types in xadd");
-                            }
-                        }
-                    },
-                    _ => {
-                        unimplemented!("found string data in a stream cmd_xadd");
-                    }
-                }
-            },
-            None => {
-                match new_kv.value {
-                    RDBValue::Stream(ref mut new_value_vec) => {
-                        if new_value_vec[0].id.0 == usize::MAX {
-                            new_value_vec[0].id.0 = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as usize;
-                        }
-                        if new_value_vec[0].id.1 == usize::MAX {
-                            if new_value_vec[0].id.0 > 0 {
-                                new_value_vec[0].id.1 = 0;
-                            } else {
-                                // if first part is 0 then second part must start from 1
-                                new_value_vec[0].id.1 = 1;
-                            }
-                        }
-                        
-                        result = format!("{}-{}", &new_value_vec[0].id.0, &new_value_vec[0].id.1);
-                        db_data.insert(
-                            new_kv.key,
-                            (new_kv.value, None));
-
-                    },
-                    _ => {
-                        unimplemented!("invalid state int cmd_xadd()");
-                    }
-                };
-                
-            }
-        }
-
-        tx.send(_EVENT_DB_UPDATED_.as_bytes().to_vec().to_owned()).unwrap();
-        encode_bulk(&result)
-    }
-
-    pub async fn cmd_xrange(
-        cmd_args: &Vec<String>, 
-        storage_ref: Arc<Mutex<HashMap<String, (RDBValue, Option<SystemTime>)>>>) -> String {
-
-        let key = cmd_args[1].as_str();
-        let mut id_start = (0, 0);
-        if cmd_args[2].find("-").is_none() {
-            id_start.0 = cmd_args[2].as_str().parse().unwrap();
-        }  else {
-            let id_parts = cmd_args[2].split_once('-').unwrap();
-            // when start id is just "-" id_start just defaults to (0, 0) 
-            id_start = (id_parts.0.parse().unwrap_or_default(), id_parts.1.parse().unwrap_or_default());
-        }
-
-        let mut id_end = (0, usize::MAX); 
-        if cmd_args[3] == "+" {
-            id_end = (usize::MAX, usize::MAX);
-        } else if cmd_args[3].find("-").is_none() {
-            id_end.0 = cmd_args[3].as_str().parse().unwrap();
-        } else { 
-            let id_parts = cmd_args[3].split_once('-').unwrap();
-            id_end = (id_parts.0.parse().unwrap(), id_parts.1.parse().unwrap());
-        }
-
-        let _db = storage_ref.lock().await;
-
-        let mut result: Vec<String> = vec![];
-        match _db.get(key) {
-            Some((stream_kvs, _)) => {
-                match stream_kvs {
-                    RDBValue::Stream(stream_data) => {
-                        for entry in stream_data {
-                            if id_start <= entry.id && entry.id <= id_end {
-                                result.push(entry.serialize());
-                            }  
-                        } 
-                    },
-                    _ => {
-                        panic!("type mismatch in xrange");
-                    }
-                }
-            },
-            None => {
-                ()
-            }
-        } 
-        
-        encode_array(&result, false)
-    }
-
-    pub async fn cmd_xread(
-        cmd_args: &Vec<String>, 
-        storage_ref: Arc<Mutex<HashMap<String, (RDBValue, Option<SystemTime>)>>>,
-        mut rx:  broadcast::Receiver<Vec<u8>>) -> String {
-
-        let mut final_result = vec![];      // accumulated reuslts
-        let mut result: Vec<String> = vec![];           // result of one stream
-        let mut start = 2;
-        let mut state: HashMap<String, (usize, usize)> = HashMap::new();
-
-        if cmd_args[1] == "block" {
-            // save the state before blocking
-            {
-                let _db = storage_ref.lock().await;
-                for k  in _db.keys() {
-                    match &_db.get(k).unwrap().0 {
-                        RDBValue::Stream(entries) => {
-                            // save stream latest entries
-                            state.insert(k.clone(), entries.iter().next_back().unwrap().id.clone());
-                        },
-                        _ => {
-                            continue;
-                        }
-                    }
-                }
-            }
-            start += 2;
-            let sleep_duration = Duration::from_millis(cmd_args[2].parse().unwrap());
-            if sleep_duration.as_millis() > 0 {
-                sleep(sleep_duration).await;
-            } else {
-                // wait for new entry in the db
-                loop {
-                    select! {
-                        data = rx.recv() => {
-                            if let Ok(msg) = data {
-                                if msg == _EVENT_DB_UPDATED_.as_bytes() {
-                                    // move on
-                                    break;
-                                } else {
-                                    // continue to listen
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        let mid = (cmd_args.len() - 1 - start + 1) / 2;
-
-        for i in start..(start + mid) {
-            result.clear();
-            let key = cmd_args[i].as_str();
-            
-            let mut id_start = (0, 0);
-
-            if cmd_args[i + mid] == "$" {
-                if let Some(id) = state.get(key) {
-                    id_start = *id;
-                }
-            } else if cmd_args[i + mid].find("-").is_none() {
-                id_start.0 = cmd_args[i + mid].as_str().parse().unwrap();
-            }  else {
-                let id_parts = cmd_args[i + mid].split_once('-').unwrap();
-                // when start id is just "-" id_start just defaults to (0, 0) 
-                id_start = (id_parts.0.parse().unwrap_or_default(), id_parts.1.parse().unwrap_or_default());
-            }    
-            let id_end = (usize::MAX, usize::MAX); 
-    
-            let _db = storage_ref.lock().await;
-    
-            let mut result: Vec<String> = vec![];
-            match _db.get(key) {
-                Some((stream_kvs, _)) => {
-                    match stream_kvs {
-                        RDBValue::Stream(stream_data) => {
-                            for entry in stream_data {
-                                if id_start < entry.id && entry.id <= id_end {
-                                    result.push(entry.serialize());
-                                }  
-                            } 
-                        },
-                        _ => {
-                            panic!("type mismatch in xrange");
-                        }
-                    }
-                },
-                None => {
-                    panic!("key entry not found in cmd_xread()"); 
-                }
-            }
-            if !result.is_empty() {
-                final_result.push(encode_array(&vec![encode_bulk(key), encode_array(&result, false)], false)); 
-            }
-        } 
-
-        if final_result.is_empty() {
-            return "*-1\r\n".to_owned();
-        }    
-        encode_array(&final_result, false)
-    }
-
     pub async fn cmd_incr(cmd_args: &Vec<String>, storage_ref: Arc<Mutex<HashMap<String, (RDBValue, Option<SystemTime>)>>>) -> String {
 
         let mut _db =storage_ref.lock().await;
@@ -718,460 +451,6 @@ pub mod methods {
         encode_int(result.parse().unwrap())
     }
 
-    pub async fn cmd_list_push(
-        cmd_args: &Vec<String>,
-        storage_ref: Arc<Mutex<HashMap<String, (RDBValue, Option<SystemTime>)>>>,
-        push_back: bool,
-        tx: broadcast::Sender<Vec<u8>>) -> String {
-
-        let result;
-        let key = &cmd_args[1];
-        {
-            let mut _db = storage_ref.lock().await;
-
-            if _db.get_mut(key).is_none() {
-                _db.insert(key.clone(), (RDBValue::List(VecDeque::new()), None));
-            } 
-
-            let (rdb_value, _) = _db.get_mut(key).unwrap(); 
-
-            match rdb_value {
-                RDBValue::List(v) => {
-                    for i in 2..cmd_args.len() {
-                        if push_back {
-                            v.push_back(cmd_args[i].clone());
-                        } else {
-                            v.push_front(cmd_args[i].clone());
-                        }
-                    }
-
-                    result =encode_int(v.len());
-                },
-                _ => {
-                    panic!("invalid data type in cmd_list_push()");
-                }
-            }
-        }
-
-        // release lock on db, send message
-        let mut msg = _EVENT_DB_UPDATED_LIST_.as_bytes().to_vec().to_owned();
-        msg.extend_from_slice(key.as_bytes());
-        pbas(&msg);
-        tx.send(msg).ok();
-
-        return result;
-    }
-
-    pub async fn cmd_lrange(
-        cmd_args: &Vec<String>,
-        storage_ref: Arc<Mutex<HashMap<String, (RDBValue, Option<SystemTime>)>>>) -> String {
-            
-        let key = &cmd_args[1];
-        let mut l: isize = cmd_args[2].parse().unwrap();
-        let mut r: isize = cmd_args[3].parse().unwrap();
-
-        let _db = storage_ref.lock().await;
-        let mut result = vec![];
-
-        if let Some((rdb_val, _)) =  _db.get(key) {
-            match rdb_val {
-                RDBValue::List(v) => {
-                    let size = v.len() as isize;
-                    if l < 0 && l < -(size - 1) {
-                        l = 0;
-                    }
-                    if r < 0 && r < -(size - 1) {
-                        r = 0;
-                    } 
-
-                    if l < 0 {
-                        l = (l + size) % size;
-                    }
-                    if r < 0 {
-                        r = (r + size) % size;
-                    }
-
-                    if l > r {
-                        return encode_array(&vec![], true);
-                    }
-
-                    for j in l..std::cmp::min(r + 1, size) {
-                        result.push(v[j as usize].clone());
-                    }         
-                },
-                _ => { 
-                    panic!("mismatched data types");
-                }
-            }
-        } 
-
-        encode_array(&result, true)
-    }
-
-    pub async fn cmd_llen(cmd_args: &Vec<String>, storage_ref: Arc<Mutex<HashMap<String, (RDBValue, Option<SystemTime>)>>>) -> String {
-
-        if let Some((rdb_val, _)) = storage_ref.lock().await.get(&cmd_args[1]) {
-            match rdb_val {
-                RDBValue::List(v) => {
-                    return encode_int(v.len());
-                },
-                _ => {
-                    panic!("invalid data type for this key in cmd_llen()");
-                }
-            }
-        }
-
-        return encode_int(0);
-    } 
-
-    pub async fn cmd_lpop(
-        cmd_args: &Vec<String>,
-        storage_ref: Arc<Mutex<HashMap<String, (RDBValue, Option<SystemTime>)>>>) -> String {
-
-        let mut result = vec![];
-        if let Some((rdb_val, _)) = storage_ref.lock().await.get_mut(&cmd_args[1]) {
-            match rdb_val {
-                RDBValue::List(v) => {
-                    let mut remove_count: usize = 1; 
-                    if cmd_args.len() > 2 {
-                        remove_count = cmd_args[2].parse().unwrap();
-                    }
-
-                    while let Some(val) = v.pop_front() {
-                        result.push(val);
-                        remove_count -= 1;
-                        if remove_count == 0 {
-                            break;
-                        } 
-                    }
-
-                    // if single variant was called
-                    if cmd_args.len() == 2 {
-                        return encode_bulk(&result[0]);
-                    } else {
-                        // if muti variant was called 
-                        return encode_array(&result, true); 
-                    }
-                },
-                _ => {
-                    panic!("invalid data type for this key in cmd_lpop()");
-                }
-            }
-        } else {
-            return encode_bulk(""); 
-        }
-    }
-
-    pub async fn cmd_sub (
-        glob_config_ref: Arc<Mutex<GlobConfig>>,
-        config_args: &mut Args,
-        cmd_args: &Vec<String>) -> String {
-        let chan_name = &cmd_args[1];
-        config_args.client_in_sub_mode = true;
-        config_args.subbed_chans.insert(chan_name.as_bytes().to_vec(), ());
-        
-        let mut glob_config = glob_config_ref.lock().await;
-        if let Some(clients) = glob_config.subscriptions.get_mut(chan_name) {
-            clients.insert(config_args.other_port);
-        } else {
-            let mut new_entry = HashSet::new();
-            new_entry.insert(config_args.other_port);
-            glob_config.subscriptions.insert(chan_name.clone(), new_entry);
-        }
-
-        return encode_array(&vec![encode_bulk("subscribe"), encode_bulk(chan_name), encode_int(config_args.subbed_chans.len())], false);
-    }
-
-    pub async fn cmd_blpop(
-        config_args: &Args,
-        cmd_args: &Vec<String>, 
-        storage_ref: Arc<Mutex<HashMap<String, (RDBValue, Option<SystemTime>)>>>,
-        mut rx: broadcast::Receiver<Vec<u8>>,
-        glob_config: Arc<Mutex<GlobConfig>>) -> String {
-        
-        let key = &cmd_args[1];
-        let mut timeout: f32 = cmd_args[2].parse().unwrap(); 
-        let mut result  = vec![];
-        if timeout == 0.0 {
-            timeout = 60.0 * 60.0;  // 1 hour, basically block infinitely for our purposes
-        }
-        let end = Instant::now() + Duration::from_secs_f32(timeout);
-
-        loop {
-            select! {
-                _ = sleep_until(end) => {
-                    // remove this client from the queue
-                    // we could use a hashmap to make insert and removals O(1) 
-                    glob_config.lock().await.blocked_clients.get_mut(&cmd_args[1]).unwrap().retain(|ele| *ele != config_args.other_port);
-
-                    // we need to return null array but apparently i havent implemented it yet
-                    return "*-1\r\n".to_owned(); 
-                    // return encode_array(&vec!["".to_owned()], true);
-                    // return encode_bulk("");
-                },
-
-                data = rx.recv() => {
-                    if data.is_err() {
-                        continue;
-                    }
-
-                    let msg = data.unwrap();
-
-                    pbas(&msg); 
-                    if msg.starts_with(_EVENT_DB_UPDATED_LIST_.as_bytes()) {
-                        if msg[_EVENT_DB_UPDATED_LIST_.as_bytes().len()..].starts_with(key.as_bytes()) {
-                            // if this isnt the first one waiting on this key
-                            let mut glob_config_data = glob_config.lock().await;
-                            // in the tests the thread is panicking here, but it passes the tests because in this case the thread is supposed to exit 
-                            if glob_config_data.blocked_clients.get(&cmd_args[1]).unwrap().is_empty() || glob_config_data.blocked_clients.get(&cmd_args[1]).unwrap().front().unwrap() != &config_args.other_port {
-                                // continue blocking  
-                                continue;
-                            }
-
-                            // if it is 
-                            glob_config_data.blocked_clients.clear();
-                            let mut _db = storage_ref.lock().await;
-                            let (ref mut rdb_value, _) = _db.get_mut(key).unwrap();
-
-                            match rdb_value {
-                                RDBValue::List(v) => {
-                                    result = vec![key.clone(), v.pop_front().unwrap()];
-                                },
-                                _ => {
-                                    panic!("stop ittttt");
-                                }
-                            }
-                            break;
-                        }
-                    }
-                }
-            } 
-        }
-
-        encode_array(&result, true)
-    }
-
-    pub async fn cmd_pub(config_args: &mut Args, 
-        cmd_args: &Vec<String>, 
-        glob_config_ref: Arc<Mutex<GlobConfig>>,
-        tx: broadcast::Sender<Vec<u8>>) -> String {
-        
-        let chan_name = &cmd_args[1];
-        let msg = &cmd_args[2];
-        let transmission = encode_array(&vec!["message".to_owned(), chan_name.clone(), msg.clone()], true);
-        config_args.subbed_chans.insert(chan_name.as_bytes().to_owned(), ()); 
-
-        let glob_config = glob_config_ref.lock().await;
-        // check if there are clients subscribed to this channel
-        if let Some(clients) = glob_config.subscriptions.get(chan_name) {
-            if tx.send(transmission.as_bytes().to_vec()).is_err() {
-                panic!("could not broadcast the publisher's msg");
-            }
-            println!("published: {}", transmission);
-            return encode_int(clients.len()); 
-        }
-
-        return encode_int(0);
-    }
-
-    pub async fn cmd_unsub(
-        config_args: &mut Args,
-        cmd_args: &Vec<String>,
-        glob_config: Arc<Mutex<GlobConfig>>) -> String {
-
-        let chan_name = &cmd_args[1];
-        glob_config.lock().await.subscriptions
-            .get_mut(chan_name)
-            .or(Some(&mut HashSet::new())).unwrap()
-            .remove(&config_args.other_port);
-            
-        config_args.subbed_chans.remove(chan_name.as_bytes());
-
-        return encode_array(&vec![encode_bulk("unsubscribe"), encode_bulk(chan_name), encode_int(glob_config.lock().await.subscriptions.get(chan_name).or(Some(&HashSet::new())).unwrap().len())], false); 
-    }
-
-    pub async fn cmd_zadd(
-        _: &Args,
-        cmd_args: &Vec<String>,
-        sorted_set_ref: Arc<Mutex<HashMap<String, SortedSet>>>) -> String {
-
-        let mut sorted_set = sorted_set_ref.lock().await;
-        
-        let set_name = &cmd_args[1];
-        let score: &SortableF64 = &SortableF64{0: cmd_args[2].parse::<f64>().unwrap()};
-        let key = &cmd_args[3];
-
-        let set = sorted_set.entry(set_name.clone()).or_default();
-        // let ans = set.insert(key, score, key);
-        // let mut ans= 1; 
-        
-        // if let Some(old_score) =set.kv.insert(key.clone(), *score) {    // insert updated entry in hash map
-        //     set.st.remove(&(old_score, key.clone()));
-
-        //     ans = 0;    // new key was inserted in this set
-        // }
-
-        // // insert updated version in the ordered set 
-        // set.st.insert((score.clone(), key.clone()));
-
-        encode_int(set.insert(key, score, key))
-    }
-
-    pub async fn cmd_zrange(
-        _: &Args,
-        cmd_args: &Vec<String>,
-        sorted_set_ref: Arc<Mutex<HashMap<String, SortedSet>>>
-    ) -> String {
-        let set_name = &cmd_args[1];
-        // let score = SortableF64(cmd_args[1].parse::<f64>().unwrap());
-        let mut start: isize = cmd_args[2].parse::<isize>().unwrap();
-        let mut end: isize = cmd_args[3].parse::<isize>().unwrap(); 
-
-        let sorted_set = sorted_set_ref.lock().await;
-
-        let mut result = vec![];
-        if let Some(set) = sorted_set.get(set_name) {
-            let sz: isize = set.st.len() as isize;
-            if start < 0 {
-                start = std::cmp::max(0, sz + start);
-            } 
-
-            if end < 0 {
-                end = std::cmp::min(sz - 1, sz + end);
-            }
-
-            let mut i =0;
-            for (_, this_key) in set.st.iter() {
-                if start <= i && i <= end {
-                    result.push(this_key.clone());
-                }
-                i += 1; 
-            }
-        }
-
-        encode_array(&result, true)
-    }
-
-    pub async fn cmd_zrank(
-        _: &Args,
-        cmd_args: &Vec<String>,
-        sorted_set_ref: Arc<Mutex<HashMap<String, SortedSet>>>
-    ) -> String {
-        let set_name = &cmd_args[1];
-        // let score = SortableF64(cmd_args[1].parse::<f64>().unwrap());
-        let key = &cmd_args[2];
-
-        let sorted_set = sorted_set_ref.lock().await;
-
-        let mut rank: isize = -1;
-        if let Some(set) = sorted_set.get(set_name) {
-            if let Some(score) = set.kv.get(key) {
-                for (this_score, this_key) in set.st.iter() {
-                    rank += 1;
-                    if this_key == key && this_score == score {
-                        break;
-                    }
-                }
-            }
-        }
-
-        if rank == -1 { 
-            return encode_bulk("");
-        }
-        // else  
-        encode_int(rank as usize) 
-    }
-
-    pub async fn cmd_zcard(
-        _: &Args,
-        cmd_args: &Vec<String>,
-        sorted_set_ref: Arc<Mutex<HashMap<String, SortedSet>>>) -> String {
-
-        let set_name = &cmd_args[1]; 
-
-        let size;
-        if let Some(set) = sorted_set_ref.lock().await.get(set_name) {
-            size = set.st.len();
-        } else {
-            size =0;
-        }
-    
-        encode_int(size) 
-    }
-
-    pub async fn cmd_zscore(
-        _: &Args,
-        cmd_args: &Vec<String>,
-        sorted_set_ref: Arc<Mutex<HashMap<String, SortedSet>>>) -> String {
-        
-        let set_name = &cmd_args[1]; 
-        let member = &cmd_args[2];
-
-        if let Some(set) = sorted_set_ref.lock().await.get(set_name) {
-            if let Some(score) = set.kv.get(member) {
-                return encode_bulk(score.0.to_string().as_str());
-            }
-        }
-
-        encode_bulk("")  
-    }
-
-    pub async fn cmd_zrem(
-        _: &Args,
-        cmd_args: &Vec<String>,
-        sorted_set_ref: Arc<Mutex<HashMap<String, SortedSet>>>) -> String {
-            
-        let set_name = &cmd_args[1];
-        let member = &cmd_args[2];
-        
-        if let Some(set) = sorted_set_ref.lock().await.get_mut(set_name) {
-            if let Some(&score) = set.kv.get(member) {
-                set.kv.remove(member.as_str());
-                set.st.remove(&(score.clone(), member.clone()));
-
-                return encode_int(1);
-            }
-        }
-
-        // no elements were deleted because either the set doesnt exist or the member doesnt exist 
-        encode_int(0)
-    }
-
-    pub async fn cmd_geoadd(
-        _: &Args,
-        cmd_args: &Vec<String>,
-        sorted_set_ref: Arc<Mutex<HashMap<String, SortedSet>>>) -> String {
-        
-        // args format: [_, key, long, lat, member]
-        let GEO_SET_NAME = String::from("GEO"); // all the geolocation entries belong to the GEO set 
-        let key = &cmd_args[1];
-
-        let value = GEOlocation{
-            member: cmd_args[4].clone(),
-            lat: SortableF64(cmd_args[3].clone().parse().unwrap()),  
-            long: SortableF64(cmd_args[2].clone().parse().unwrap()),
-        };
-
-        let mut sorted_set = sorted_set_ref.lock().await;
-        
-        let set = sorted_set.entry(GEO_SET_NAME.clone()).or_default();
-        // let mut ans= 1;
-
-        // // todo!("calculate score from coords");
-        // let score = &SortableF64(0.0); 
-        
-        // if let Some(old_score) =set.kv.insert(key.clone(), *score) {    // insert updated entry in hash map
-        //     set.st.remove(&(old_score, key.clone()));
-
-        //     ans = 0;    // new key was inserted in this set
-        // }
-
-        // // insert updated version in the ordered set 
-        // set.st.insert((score.clone(), serde_json::to_string(&value).unwrap()));
-
-        encode_int(set.insert(key, &SortableF64(0.0), &serde_json::to_string(&value).unwrap()))
-    }
-
     pub async fn cmd_exec(
         cmds: &Vec<(usize, Vec<String>)>, 
         config_args: &mut Args,
@@ -1191,7 +470,7 @@ pub mod methods {
             // check if cmd is valid for current context or not
             // for now this only checks for sub mode commands validity, at some point we might wanna return the error from this function
             // based on what caused it and what the other end expects in such a case  
-            if sanity_check(cmd_args[0].as_str(), config_args.client_in_sub_mode) {
+            if cmd_sanity_check(cmd_args[0].as_str(), config_args.client_in_sub_mode) {
                 responses = match cmd_args[0].to_uppercase().as_str() {
                     "ECHO" => {
                         vec![encode_bulk(&cmd_args[1]).as_bytes().to_owned()]
@@ -1320,13 +599,13 @@ pub mod methods {
                         }
                     },
                     "XADD" => {
-                        vec![cmd_xadd(&cmd_args, storage_ref.clone(), tx.clone()).await.as_str().as_bytes().to_owned()]
+                        vec![streams::streams::cmd_xadd(&cmd_args, storage_ref.clone(), tx.clone()).await.as_str().as_bytes().to_owned()]
                     },
                     "XRANGE" => {
-                        vec![cmd_xrange(&cmd_args, storage_ref.clone()).await.as_str().as_bytes().to_owned()]
+                        vec![streams::streams::cmd_xrange(&cmd_args, storage_ref.clone()).await.as_str().as_bytes().to_owned()]
                     },
                     "XREAD" => {
-                        vec![cmd_xread(&cmd_args, storage_ref.clone(), tx.subscribe()).await.as_str().as_bytes().to_owned()]
+                        vec![streams::streams::cmd_xread(&cmd_args, storage_ref.clone(), tx.subscribe()).await.as_str().as_bytes().to_owned()]
                     },
                     "INCR" => {
                         vec![cmd_incr(&cmd_args, storage_ref.clone()).await.as_bytes().to_owned()] 
@@ -1340,19 +619,19 @@ pub mod methods {
                         vec![response_ok().as_bytes().to_owned()]
                     },
                     "RPUSH" => {
-                        vec![cmd_list_push(&cmd_args, storage_ref.clone(), true, tx.clone()).await.as_bytes().to_owned()]
+                        vec![lists::lists::cmd_list_push(&cmd_args, storage_ref.clone(), true, tx.clone()).await.as_bytes().to_owned()]
                     },
                     "LRANGE" => {
-                        vec![cmd_lrange(&cmd_args, storage_ref.clone()).await.as_bytes().to_owned()]
+                        vec![lists::lists::cmd_lrange(&cmd_args, storage_ref.clone()).await.as_bytes().to_owned()]
                     },
                     "LPUSH" => {
-                        vec![cmd_list_push(&cmd_args, storage_ref.clone(), false, tx.clone()).await.as_bytes().to_owned()]
+                        vec![lists::lists::cmd_list_push(&cmd_args, storage_ref.clone(), false, tx.clone()).await.as_bytes().to_owned()]
                     },
                     "LLEN" =>{
-                        vec![cmd_llen(&cmd_args, storage_ref.clone()).await.as_bytes().to_owned()]
+                        vec![lists::lists::cmd_llen(&cmd_args, storage_ref.clone()).await.as_bytes().to_owned()]
                     }
                     "LPOP" => {
-                        vec![cmd_lpop(&cmd_args, storage_ref.clone()).await.as_bytes().to_owned()]
+                        vec![lists::lists::cmd_lpop(&cmd_args, storage_ref.clone()).await.as_bytes().to_owned()]
                     },
                     "BLPOP" => {
                         // add this client to the waiting list
@@ -1367,40 +646,40 @@ pub mod methods {
                             } 
                         } 
                         println!("client {} waiting on {}", config_args.other_port, &cmd_args[1]);
-                        return vec![cmd_blpop(config_args, cmd_args, storage_ref.clone(), tx.subscribe(), glob_config).await.as_bytes().to_owned()];
+                        return vec![pub_sub::pub_sub::cmd_blpop(config_args, cmd_args, storage_ref.clone(), tx.subscribe(), glob_config).await.as_bytes().to_owned()];
                     },
                     "SUBSCRIBE" => {
-                        return vec![cmd_sub(glob_config, config_args, cmd_args).await.as_bytes().to_owned()]
+                        return vec![pub_sub::pub_sub::cmd_sub(glob_config, config_args, cmd_args).await.as_bytes().to_owned()]
                     },
                     "PUBLISH" => {
-                        return vec![cmd_pub(config_args, cmd_args, glob_config.clone(), tx.clone()).await.as_bytes().to_owned()]
+                        return vec![pub_sub::pub_sub::cmd_pub(config_args, cmd_args, glob_config.clone(), tx.clone()).await.as_bytes().to_owned()]
                     },
                     "UNSUBSCRIBE" => {
-                        vec![cmd_unsub(config_args, cmd_args, glob_config.clone()).await.as_bytes().to_owned()]
+                        vec![pub_sub::pub_sub::cmd_unsub(config_args, cmd_args, glob_config.clone()).await.as_bytes().to_owned()]
                     },
                     "QUIT" => {
                         unimplemented!();
                     },
                     "ZADD" => {
-                        vec![cmd_zadd(config_args, cmd_args, sorted_set_ref.clone()).await.as_bytes().to_owned()]
+                        vec![sorted_sets::sorted_sets::cmd_zadd(config_args, cmd_args, sorted_set_ref.clone()).await.as_bytes().to_owned()]
                     },
                     "ZRANK" => {
-                        vec![cmd_zrank(config_args, cmd_args, sorted_set_ref.clone()).await.as_bytes().to_owned()] 
+                        vec![sorted_sets::sorted_sets::cmd_zrank(config_args, cmd_args, sorted_set_ref.clone()).await.as_bytes().to_owned()] 
                     },
                     "ZRANGE" => {
-                        vec![cmd_zrange(config_args, cmd_args, sorted_set_ref.clone()).await.as_bytes().to_owned()]
+                        vec![sorted_sets::sorted_sets::cmd_zrange(config_args, cmd_args, sorted_set_ref.clone()).await.as_bytes().to_owned()]
                     },
                     "ZCARD" => {
-                        vec![cmd_zcard(config_args, cmd_args, sorted_set_ref.clone()).await.as_bytes().to_owned()]
+                        vec![sorted_sets::sorted_sets::cmd_zcard(config_args, cmd_args, sorted_set_ref.clone()).await.as_bytes().to_owned()]
                     },
                     "ZSCORE" => {
-                        vec![cmd_zscore(config_args, cmd_args, sorted_set_ref.clone()).await.as_bytes().to_owned()]
+                        vec![sorted_sets::sorted_sets::cmd_zscore(config_args, cmd_args, sorted_set_ref.clone()).await.as_bytes().to_owned()]
                     },
                     "ZREM" => {
-                        vec![cmd_zrem(config_args, cmd_args, sorted_set_ref.clone()).await.as_bytes().to_owned()]
+                        vec![sorted_sets::sorted_sets::cmd_zrem(config_args, cmd_args, sorted_set_ref.clone()).await.as_bytes().to_owned()]
                     },
                     "GEOADD" => {
-                        vec![cmd_geoadd(config_args, cmd_args, sorted_set_ref.clone()).await.as_bytes().to_owned()]
+                        vec![geospatial::geospatial::cmd_geoadd(config_args, cmd_args, sorted_set_ref.clone()).await.as_bytes().to_owned()]
                     },
                     "ACL" => {
                         match cmd_args[1].to_ascii_uppercase().as_str() {
