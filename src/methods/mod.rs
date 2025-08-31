@@ -322,7 +322,13 @@ pub mod methods {
                     },
                     "GEOPOS" => {
                         vec![geospatial::geospatial::cmd_geopos(cmd_args, sorted_set_ref.clone()).await.as_bytes().to_owned()]
-                    }
+                    },
+                    "GEODIST" => {
+                        vec![geospatial::geospatial::cmd_geodist(cmd_args, sorted_set_ref.clone()).await.as_bytes().to_owned()]
+                    },
+                    "GEOSEARCH" => {
+                        vec![geospatial::geospatial::cmd_geosearch(cmd_args, sorted_set_ref.clone()).await.as_bytes().to_owned()]
+                    },
                     "ACL" => {
                         match cmd_args[1].to_ascii_uppercase().as_str() {
                             "LIST" => {

@@ -69,5 +69,68 @@ pub mod geospatial {
         }
 
         encode_array(&result, false)
+    }
+
+    pub async fn cmd_geodist(
+        cmd_args: &Vec<String>,
+        sorted_set_ref: Arc<Mutex<HashMap<String, SortedSet>>>,
+    ) -> String {
+
+        let set_name = &cmd_args[1]; 
+        let key1 = &cmd_args[2];
+        let key2 = &cmd_args[3];
+        let mut result = encode_bulk("");
+
+        if let Some(set) = sorted_set_ref.lock().await.get(set_name) {
+            let coords1 = geo_decode(set.kv.get(key1).unwrap().0 as u64);
+            let coords2 = geo_decode(set.kv.get(key2).unwrap().0 as u64);
+
+            result= encode_bulk(haversine_dist(&coords1, &coords2).to_string().as_str());
+        }  
+
+        result
     } 
+    
+    pub async fn cmd_geosearch(
+        cmd_args: &Vec<String>,
+        sorted_set_ref: Arc<Mutex<HashMap<String, SortedSet>>>,
+    ) -> String {
+        // 0 1 2 3 4 5 6
+        // FROMLONLAT, BYRADIUS options are fixed
+        // [GEOSEARCH places FROMLONLAT long lat BYRADIUS x m]
+        let set_name    =  &cmd_args[1];
+        let center  = Coordinates{
+            longitude: cmd_args[3].parse().unwrap(), 
+            latitude: cmd_args[4].parse().unwrap()
+        };  
+        let radius: f64;
+
+        match cmd_args[6].as_str() {
+            "km" => {
+                radius =  cmd_args[5].parse::<f64>().unwrap() * 1000.0;
+            },
+            "m" => {
+                radius =  cmd_args[5].parse::<f64>().unwrap();
+            },
+            "mi" => {
+                radius =  cmd_args[5].parse::<f64>().unwrap() * 1609.34;
+            },
+            _ => {
+                panic!("unidentified distance metric in cmd: geosearch.");
+            }
+        }
+
+        let mut result = vec![];
+
+        if let Some(set) = sorted_set_ref.lock().await.get(set_name) {
+            for (loc, score) in set.kv.iter() {
+                if haversine_dist(&center, &geo_decode(score.0 as u64))  < radius {
+                    result.push(loc.clone());
+                }
+            } 
+        }  
+
+        encode_array(&result, true)
+    } 
+
 }
