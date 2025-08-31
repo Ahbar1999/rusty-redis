@@ -27,7 +27,6 @@ pub mod sorted_sets {
         sorted_set_ref: Arc<Mutex<HashMap<String, SortedSet>>>
     ) -> String {
         let set_name = &cmd_args[1];
-        // let score = SortableF64(cmd_args[1].parse::<f64>().unwrap());
         let mut start: isize = cmd_args[2].parse::<isize>().unwrap();
         let mut end: isize = cmd_args[3].parse::<isize>().unwrap(); 
 

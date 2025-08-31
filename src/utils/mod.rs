@@ -2,6 +2,7 @@ pub mod utils {
     use std::{cmp::Ordering, collections::{BTreeSet, HashMap, HashSet, VecDeque}, time::SystemTime};
     use clap::Parser;
     use serde::{Deserialize, Serialize};
+    use tokio::net::TcpStream;
    
     // this module provides frequently used funtions, constants, types
 
@@ -462,5 +463,27 @@ pub mod utils {
         format!("-{}\r\n", msg)
     } 
 
-    
+    pub fn encode_simple(vals: &Vec<&str>) -> String {
+        let mut result = vec![];
+        
+        for &v in vals {
+            result.push(v);
+        }
+
+        let mut s = result.join(" ");
+        s.push_str("\r\n");
+        s = "+".to_owned() + &s;
+
+        s
+    }
+
+    // returns +OK\r\n
+    pub fn response_ok() -> String {
+        String::from("+OK\r\n")
+    }
+
+    pub async fn connect_to_master(addr: &str, socket: &str) -> TcpStream {
+        println!("slave connecting to master on:{}", socket);
+        TcpStream::connect(format!("{}:{}", addr, socket)).await.unwrap() 
+    } 
 }

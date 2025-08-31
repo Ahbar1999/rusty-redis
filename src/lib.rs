@@ -9,9 +9,6 @@ pub mod utils;
 // EXTRA things to do 
 //  1-> find out why using read_buf doesnt work in the conn fn 
 
-// all write command bytes need to be counted
-// bytes of the following commands need to be counted by the slave: PING, REPLCONF, SET
-
 #[tokio::main]
 pub async fn redis_cli<I: Iterator<Item=String>>(argv: I) {
     // parse command line arguments
@@ -139,7 +136,7 @@ async fn master_conn(listener :TcpListener, config_args: Args) {
         
         let dbfilepath = "".to_owned() + &config_args.dir + "/" + &config_args.dbfilename;
         if !dbfilepath.starts_with("UNSET") {
-            cmd_sync(&dbfilepath, _db.clone()).await;
+            replication::replication::cmd_sync(&dbfilepath, _db.clone()).await;
         }
     }
 

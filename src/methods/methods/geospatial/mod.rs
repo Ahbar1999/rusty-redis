@@ -20,10 +20,10 @@ pub mod geospatial {
             long: SortableF64(cmd_args[2].clone().parse().unwrap()),
         };
 
-        if value.long > SortableF64(180.0) 
-            || value.long < SortableF64(-180.0) 
-            || value.lat < SortableF64(-85.05112878)
-            || value.lat > SortableF64(85.05112878) {
+        if value.long.0 > 180.0 
+            || value.long.0 < -180.0 
+            || value.lat.0 < -85.05112878
+            || value.lat.0 > 85.05112878 {
             return redis_err(&format!("{} {:?},{:?}", _ERROR_OUT_OF_RANGE_GEOCOORDS_, value.long, value.lat));
         } 
 
@@ -58,6 +58,7 @@ pub mod geospatial {
                     // result.push(encode_array(&vec![], false));
                 }
             } else {
+
                 result.push("*-1\r\n".to_owned());
                 // result.push(encode_array(&vec![], false));
             }
