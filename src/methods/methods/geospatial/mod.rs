@@ -37,4 +37,36 @@ pub mod geospatial {
         // score is hardcoded to 0.0
         encode_int(set.insert(&value.member, &SortableF64(geo_encode(value.lat.0, value.long.0) as f64), &value.member))
     }
+
+    pub async fn cmd_geopos(
+        cmd_args: &Vec<String>,
+        sorted_set_ref: Arc<Mutex<HashMap<String, SortedSet>>>) -> String {
+
+        let mut result = vec![];
+        let set_name = &cmd_args[1];
+
+        for i in 2..cmd_args.len() {
+
+            let place = &cmd_args[i];
+
+            if let Some(set) = sorted_set_ref.lock().await.get(set_name) {
+                if let Some(score) = set.kv.get(place) {
+                    let coords = geo_decode(score.0 as u64);
+                    result.push(encode_array(&vec![coords.longitude.to_string(), coords.latitude.to_string()], true));
+                } else {
+                    result.push("*-1\r\n".to_owned());
+                    // result.push(encode_array(&vec![], false));
+                }
+            } else {
+                result.push("*-1\r\n".to_owned());
+                // result.push(encode_array(&vec![], false));
+            }
+        }
+
+        if result.is_empty() {
+            return "*-1\r\n".to_owned();
+        }
+
+        encode_array(&result, false)
+    } 
 }

@@ -229,10 +229,10 @@ pub mod utils {
     const LATITUDE_RANGE: f64 = MAX_LATITUDE - MIN_LATITUDE;
     const LONGITUDE_RANGE: f64 = MAX_LONGITUDE - MIN_LONGITUDE;
 
-    #[derive(Debug)]
-    struct Coordinates {
-        latitude: f64,
-        longitude: f64,
+    #[derive(Debug, Clone)]
+    pub struct Coordinates {
+        pub latitude: f64,
+        pub longitude: f64,
     }
 
     fn compact_int64_to_int32(v: u64) -> u32 {
@@ -309,6 +309,10 @@ pub mod utils {
     }
 
     pub fn encode_array(vals: &Vec<String>, raw: bool) -> String {
+        // null array is not same as empty array, for now its better to hardcode null array wherever it is is the required response 
+        // if vals.is_empty() {
+        //     return format!("*-1\r\n");
+        // }
          
         let mut output = format!("*{}\r\n", vals.len());
         for v in vals {
