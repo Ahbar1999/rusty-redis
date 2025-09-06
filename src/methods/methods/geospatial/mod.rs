@@ -95,7 +95,7 @@ pub mod geospatial {
         cmd_args: &Vec<String>,
         sorted_set_ref: Arc<Mutex<HashMap<String, SortedSet>>>,
     ) -> String {
-        // 0 1 2 3 4 5 6
+        // 0 1 2 3 4 5 6 7
         // FROMLONLAT, BYRADIUS options are fixed
         // [GEOSEARCH places FROMLONLAT long lat BYRADIUS x m]
         let set_name    =  &cmd_args[1];
@@ -105,15 +105,15 @@ pub mod geospatial {
         };  
         let radius: f64;
 
-        match cmd_args[6].as_str() {
+        match cmd_args[7].as_str() {
             "km" => {
-                radius =  cmd_args[5].parse::<f64>().unwrap() * 1000.0;
+                radius =  cmd_args[6].parse::<f64>().unwrap() * 1000.0;
             },
             "m" => {
-                radius =  cmd_args[5].parse::<f64>().unwrap();
+                radius =  cmd_args[6].parse::<f64>().unwrap();
             },
             "mi" => {
-                radius =  cmd_args[5].parse::<f64>().unwrap() * 1609.34;
+                radius =  cmd_args[6].parse::<f64>().unwrap() * 1609.34;
             },
             _ => {
                 panic!("unidentified distance metric in cmd: geosearch.");
@@ -124,7 +124,7 @@ pub mod geospatial {
 
         if let Some(set) = sorted_set_ref.lock().await.get(set_name) {
             for (loc, score) in set.kv.iter() {
-                if haversine_dist(&center, &geo_decode(score.0 as u64))  < radius {
+                if haversine_dist(&center, &geo_decode(score.0 as u64)) <= radius {
                     result.push(loc.clone());
                 }
             } 
